@@ -1,13 +1,34 @@
 import numpy as np
+from matplotlib.cbook import MatplotlibDeprecationWarning
+import warnings
+from pylab import rc
+from itertools import izip
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+import matplotlib.patches as patches
 
 
 class grid_world_mdp(object):
-    def __init__(self, grid_cols, grid_rows, actions, terminal_states=None, 
+    def __init__(self, grid_rows, grid_cols, actions, terminal_states=[0,15], 
                  prob_func=None, reward_func=None):
+        """Creating the grid world MPD. Note that everything is indexed by 
+        row, column, not x, y coordinates.
+
+        :param grid_rows: Integer number of rows for which to make the grid.
+        :param grid_cols: Integer number of cols for which to make the grid.
+        :param actions: Integer that must be 4 or 8. These will be compass directions.
+        :param terminal_states: List or None, of the terminal states as integers.
+        :param prob_func: Function to create a different probability distribution if needed.
+        :param reward_func: Function to create a different reward structure if needed.
+        """
+
         self.grid_rows = grid_rows
         self.grid_cols = grid_cols
         
+        # Number of states.
         self.n = grid_cols * grid_rows
+
+        # Number of actions.
         self.m = actions
         
         self.states = range(self.n)
@@ -24,7 +45,6 @@ class grid_world_mdp(object):
             self.action_names_to_idx = {'N':0, 'S':1, 'E':2, 'W':3}
             self.idx_to_action_names = {v:k for k,v in self.action_names_to_idx.items()}
 
-            
         elif self.m == 8:
             
             # Action of N, NE, NW, S, SE, SW, E, W 
@@ -36,16 +56,18 @@ class grid_world_mdp(object):
             self.action_names_to_idx = {'N':0, 'NE':1, 'NW':2 , 'S':3, 'SE':4, 
                                         'SW':5, 'E':6, 'W':7}
             self.idx_to_action_names = {v:k for k,v in self.action_names_to_idx.items()}
-            
 
-        self.idx_to_states = {self.states[i]:(i/self.grid_rows, i%self.grid_rows) for i in range(self.n)}
+        else:
+            print('The number of actions must be 4 or 8: Exiting')
+            return            
+
+        self.idx_to_states = {self.states[i]:(i/self.grid_cols, i%self.grid_cols) for i in range(self.n)}
         self.states_to_idx = {v:k for k,v in self.idx_to_states.items()}
-        
         
         if terminal_states is None:
             self.terminal_states = []
         else:
-            self.terminal_states = [0,15]
+            self.terminal_states = terminal_states
         
         self.create_prob_dist(prob_func)
         
@@ -55,8 +77,9 @@ class grid_world_mdp(object):
         
     
     def create_prob_dist(self, prob_func=None):
-        """
-        
+        """Creating the probability distribution for the MDP.
+
+        :param prob_func: Optional alternative function to create prob distribution.
         """
         
         if prob_func is None:
@@ -67,7 +90,10 @@ class grid_world_mdp(object):
     
     def get_prob_dist(self):
         """
-        
+        Default function to create a probability distribution for the MDP.
+        This is a noiseless distribution. If the agent takes action 0, it will
+        go to the desired location with probability 1, if the action is legal, 
+        else if will have probability 0 of going to it and 1 of staying in its state.
         """
         
         self.P = np.zeros((self.n, self.m, self.n))
@@ -75,6 +101,7 @@ class grid_world_mdp(object):
         for state in self.states: 
             for action in self.actions: 
                 
+                # If in terminal state will stay in terminal state.
                 if state in self.terminal_states:
                     self.P[state, action, state] = 1
                     continue
@@ -93,8 +120,9 @@ class grid_world_mdp(object):
         
     
     def create_rewards(self, reward_func=None):
-        """
-        
+        """Creating the reward structure for the MDP.
+
+        :param reward_func: Optional alternative function to create reward distribution.
         """
         
         if reward_func is None:
@@ -105,7 +133,8 @@ class grid_world_mdp(object):
     
     def get_rewards(self):
         """
-        
+        The default reward structure. -1 for all actions, except 0 if 
+        going to terminal state.
         """
         
         self.R = -1*np.ones((self.n, self.m, self.n))
@@ -115,9 +144,7 @@ class grid_world_mdp(object):
     
     
     def check_valid_dist(self):
-        """
-        
-        """
+        """Checking the probability distribution sums to 1 for each action."""
         
         for state in xrange(self.n):
             for action in xrange(self.m):
@@ -126,19 +153,17 @@ class grid_world_mdp(object):
 
 class RL(object):
     def __init__(self, mdp):
-        """
-        
-        """
-
         self.mdp = mdp
         
     
     def iterative_policy_evaluation(self, pi=None, gamma=1):
+        """Iterative policy evaluation finds the state value function for a policy.
+
+        :param pi: Probability distribution of actions given states.
+        :param gamma: Float discount factor in (0,1]
         """
         
-        """
-        
-        # Random policy if not provided.
+        # Random policy if a policy is not provided.
         if pi is None:
             pi = 1/float(self.mdp.m) * np.ones((self.mdp.n, self.mdp.m))
         
@@ -149,25 +174,26 @@ class RL(object):
             delta = 0
 
             for s in self.mdp.states:            
-                temp = v[s].copy()       
-                                
+                v_temp = v[s].copy()       
+                
+                # Bellman equation to back up.
                 v[s] = sum(pi[s, a]*sum(self.mdp.P[s, a, s_new]*(self.mdp.R[s, a, s_new] + gamma*v[s_new]) 
                            for s_new in self.mdp.states) for a in self.mdp.actions)
 
-                delta = max(delta, abs(temp - v[s]))
+                delta = max(delta, abs(v_temp - v[s]))
 
             if delta < 1e-10:
                 break
-                
-        policy = self.get_iterative_policy(v)
         
-        return v, policy
+        self.mdp.v = v
+
+        self.get_iterative_policy()
         
+        self.get_named_policy()
+
     
-    def get_iterative_policy(self, v):
-        """
-        
-        """
+    def get_iterative_policy(self):
+        """Given the value function find the policy for actions in states. """
         
         policy = np.zeros(self.mdp.n)
         
@@ -176,37 +202,121 @@ class RL(object):
         for s in self.mdp.states:
             
             for a in self.mdp.actions:
-                action_vals[a] = sum(self.mdp.P[s,a,s_new]*v[s_new] for s_new in self.mdp.states)
+                action_vals[a] = sum(self.mdp.P[s,a,s_new]*self.mdp.v[s_new] for s_new in self.mdp.states)
             
+            # This break policies ties by taking the first index occurrence of the max.
             best_action = np.argmax(action_vals)
             
             policy[s] = best_action
             
-        return policy
+        self.mdp.policy = policy
+
     
-    
-    def get_named_policy(self, policy):
-        """
+    def get_named_policy(self):
+        """Get the named action for each action in the policy."""
         
-        """
-        
-        if len(policy.shape) == 1 or (policy.shape[0] == 1 and policy.shape[1] != 1) \
-            or (policy.shape[0] != 1 and policy.shape[1] == 1):
-                
-            return [self.mdp.idx_to_action_names[a] for a in policy.tolist()]
-        
-        else:
-            return [[self.mdp.idx_to_action_names[col] for col in row] for row in policy.tolist()]
+        self.mdp.named_policy = [self.mdp.idx_to_action_names[a] for a in self.mdp.policy]        
+
+
+class grid_display(object):
+    def __init__(self, rl, title='Grid World: Iterative Policy Evaluation'):
+            """Create and plot the grid with the values and policy.
+
+            :param rl: RL object with needed information.
+            :param title: Title for the figure.
+            """
+
+            # Flipping rows for plotting reasons.
+            self.values = np.flipud(rl.mdp.v.reshape((rl.mdp.grid_rows, rl.mdp.grid_cols)))
+
+            # Converting terminal state locs to the flipped orientation.
+            state_locs = np.flipud(np.arange(rl.mdp.n).reshape((rl.mdp.grid_rows, rl.mdp.grid_cols))).reshape((-1)).tolist()
+            self.terminal_states = [state_locs.index(state) for state in rl.mdp.terminal_states]
+
+            self.named_policy = zip(*[iter(rl.mdp.named_policy)]*4)[::-1]
+            self.named_policy = [item for row in self.named_policy for item in row]
             
+            self.title = title
+                        
+            self.create_grid()
+            plt.show()
 
 
+    def show_values(self):
+        """Add in the values for each square the policy."""
+        
+        warnings.simplefilter('ignore', MatplotlibDeprecationWarning)
+        ax = self.grid.get_axes()
 
+        
+        orient_dict = {'N':0, 'NE':7*np.pi/4., 'NW':np.pi/4., 'S':np.pi, 
+                       'SE':5*np.pi/4., 'SW':3*np.pi/4., 'E':3*np.pi/2., 'W':np.pi/2.}
+        
+        dist = 0.42
+        arrow_loc = {'N':(0, dist), 'NE':(dist, dist), 'NW':(-dist, dist),
+                     'S':(0, -dist), 'SE':(dist, -dist), 'SW':(-dist, -dist),
+                     'E':(dist, 0), 'W':(-dist, 0)}
 
+        count = 0
 
+        for p, value, choice in izip(self.grid.get_paths(), self.grid.get_array(), self.named_policy):
+            x, y = p.vertices[:-2, :].mean(0)
 
+            ax.text(x, y, "%.2f" % value, ha="center", va="center", color='white', 
+                    fontweight='bold', fontsize='24')
 
+            if count in self.terminal_states:
+                pass
+            else:            
+                orient = orient_dict[choice]
+                direct = arrow_loc[choice]
+                
+                ax.add_patch(patches.RegularPolygon((x + direct[0], y + direct[1]), 3, .05, color='white', orientation=orient))
+            
+            count += 1
+        
+    
+    def create_grid(self):
+        """Create and plot the grid with the values and policy."""
+        
+        cmap = mcolors.LinearSegmentedColormap.from_list('cmap', ['red', 'black', 'limegreen'])
 
+        rc('axes', linewidth=4)
 
+        fig, ax = plt.subplots(facecolor='black', edgecolor='white', linewidth=4)    
 
+        self.grid = ax.pcolor(self.values, edgecolors='white', linewidths=4, cmap=cmap, 
+                              vmin=self.values.min(), vmax=self.values.max())
 
+        self.show_values()
 
+        for spine in ax.spines.values():
+            spine.set_edgecolor('white')
+                
+        x_axis_size = self.values.shape[1]
+        y_axis_size = self.values.shape[0]
+
+        xlabels = [str(val) for val in range(0, x_axis_size)]
+        ylabels = [str(val) for val in range(y_axis_size-1, -1, -1)]
+
+        ax.set_xticks(np.arange(0.5, len(xlabels)))
+        ax.set_yticks(np.arange(0.5, len(ylabels)))
+
+        ax.set_xticklabels(xlabels)                                                       
+        ax.set_yticklabels(ylabels) 
+
+        ax.tick_params(axis='x', colors='white')
+        ax.tick_params(axis='y', colors='white')
+
+        for tick in ax.xaxis.get_major_ticks():
+            tick.label1.set_fontsize(24)
+            tick.label1.set_fontweight('bold')
+        for tick in ax.yaxis.get_major_ticks():
+            tick.label1.set_fontsize(24)
+            tick.label1.set_fontweight('bold')
+        
+        plt.title(self.title, color='white', fontsize='24', fontweight='bold')
+            
+        fig.set_size_inches((self.values.shape[1]*4, self.values.shape[0]*4))
+
+        plt.savefig('iterative_policy.png', facecolor='black')
