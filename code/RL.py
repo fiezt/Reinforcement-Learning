@@ -1,6 +1,8 @@
 import numpy as np
 from matplotlib.cbook import MatplotlibDeprecationWarning
 import warnings
+import os
+import string
 from pylab import rc
 from itertools import izip
 import matplotlib.pyplot as plt
@@ -11,7 +13,7 @@ import matplotlib.patches as patches
 class grid_world_mdp(object):
     def __init__(self, grid_rows, grid_cols, actions, terminal_states=[0,15], 
                  prob_func=None, reward_func=None):
-        """Creating the grid world MPD. Note that everything is indexed by 
+        """Creating the grid world MDP. Note that everything is indexed by 
         row, column, not x, y coordinates.
 
         :param grid_rows: Integer number of rows for which to make the grid.
@@ -165,28 +167,31 @@ class RL(object):
         
         # Random policy if a policy is not provided.
         if pi is None:
-            pi = 1/float(self.mdp.m) * np.ones((self.mdp.n, self.mdp.m))
+            self.mdp.pi = 1/float(self.mdp.m) * np.ones((self.mdp.n, self.mdp.m))
+        else:
+            self.mdp.pi = pi
         
-        v = np.zeros(self.mdp.n)
+        self.mdp.v = np.zeros(self.mdp.n)
 
-        while True:
+        max_iter = 1000
+
+        for iteration in xrange(max_iter):
             
             delta = 0
 
             for s in self.mdp.states:            
-                v_temp = v[s].copy()       
+                v_temp = self.mdp.v[s].copy()       
                 
                 # Bellman equation to back up.
-                v[s] = sum(pi[s, a]*sum(self.mdp.P[s, a, s_new]*(self.mdp.R[s, a, s_new] + gamma*v[s_new]) 
-                           for s_new in self.mdp.states) for a in self.mdp.actions)
+                self.mdp.v[s] = sum(self.mdp.pi[s, a] * sum(self.mdp.P[s, a, s_new] 
+                                    * (self.mdp.R[s, a, s_new] + gamma*self.mdp.v[s_new]) 
+                                    for s_new in self.mdp.states) for a in self.mdp.actions)
 
-                delta = max(delta, abs(v_temp - v[s]))
+                delta = max(delta, abs(v_temp - self.mdp.v[s]))
 
             if delta < 1e-10:
                 break
         
-        self.mdp.v = v
-
         self.get_iterative_policy()
         
         self.get_named_policy()
@@ -195,31 +200,92 @@ class RL(object):
     def get_iterative_policy(self):
         """Given the value function find the policy for actions in states. """
         
-        policy = np.zeros(self.mdp.n)
+        self.mdp.policy = np.zeros(self.mdp.n)
         
-        action_vals = np.zeros(self.mdp.m)
+        self.mdp.action_vals = np.zeros((self.mdp.n, self.mdp.m))
 
         for s in self.mdp.states:
             
             for a in self.mdp.actions:
-                action_vals[a] = sum(self.mdp.P[s,a,s_new]*self.mdp.v[s_new] for s_new in self.mdp.states)
+                self.mdp.action_vals[s,a] = sum(self.mdp.P[s,a,s_new] * self.mdp.v[s_new] 
+                                                for s_new in self.mdp.states)
             
             # This break policies ties by taking the first index occurrence of the max.
-            best_action = np.argmax(action_vals)
+            best_action = np.argmax(self.mdp.action_vals[s])
             
-            policy[s] = best_action
+            self.mdp.policy[s] = best_action
             
-        self.mdp.policy = policy
-
     
     def get_named_policy(self):
         """Get the named action for each action in the policy."""
         
-        self.mdp.named_policy = [self.mdp.idx_to_action_names[a] for a in self.mdp.policy]        
+        self.mdp.named_policy = [self.mdp.idx_to_action_names[a] for a in self.mdp.policy]    
+
+
+    def policy_iteration(self, gamma=1.):
+        """Finds optimal policy and the value function for that policy.
+        
+        :param gamma: Float discounting factor for rewards.
+        """
+        
+        # Initializing the value and policy function.
+        self.mdp.v = np.zeros(self.mdp.n)
+        self.mdp.policy = np.zeros(self.mdp.n, dtype=int)
+        self.mdp.action_vals = np.zeros((self.mdp.n, self.mdp.m))
+
+        max_iter = 1000
+        max_eval = 100
+
+        # Policy evaluation followed by policy improvement until convergence.
+        for iteration in xrange(max_iter):
+
+            # Policy evaluation.
+            for evaluation in xrange(max_eval):
+                
+                delta = 0
+
+                for s in self.mdp.states:            
+                    v_temp = self.mdp.v[s].copy()       
+                    
+                    a = self.mdp.policy[s]
+                    self.mdp.v[s] = sum(self.mdp.P[s, a, s_new] 
+                                        * (self.mdp.R[s, a, s_new] + gamma*self.mdp.v[s_new]) 
+                                        for s_new in self.mdp.states)
+
+                    delta = max(delta, abs(v_temp - self.mdp.v[s]))
+
+                if delta < 1e-10:
+                    break
+
+            # Policy improvement.
+            stable = True
+
+            for s in self.mdp.states:
+
+                old_policy = self.mdp.policy[s].copy()
+
+                self.mdp.action_vals[s] = [sum(self.mdp.P[s, a, s_new] 
+                                               * (self.mdp.R[s, a, s_new] + gamma*self.mdp.v[s_new]) 
+                                               for s_new in self.mdp.states) for a in self.mdp.actions]
+
+                self.mdp.policy[s] = np.argmax(self.mdp.action_vals[s])
+
+                if self.mdp.policy[s] != old_policy and stable:
+                    stable = False
+
+            # Policy convergence check.
+            if stable:
+                break
+        
+        self.get_named_policy()
+
+        # Policy probability distribution.
+        self.mdp.pi = np.zeros((self.mdp.n, self.mdp.m))
+        self.mdp.pi[np.arange(self.mdp.pi.shape[0]), self.mdp.policy] = 1. 
 
 
 class grid_display(object):
-    def __init__(self, rl, title='Grid World: Iterative Policy Evaluation'):
+    def __init__(self, rl, title='Grid World', fig_path=None, fig_name=None, savefig=False):
             """Create and plot the grid with the values and policy.
 
             :param rl: RL object with needed information.
@@ -230,15 +296,28 @@ class grid_display(object):
             self.values = np.flipud(rl.mdp.v.reshape((rl.mdp.grid_rows, rl.mdp.grid_cols)))
 
             # Converting terminal state locs to the flipped orientation.
-            state_locs = np.flipud(np.arange(rl.mdp.n).reshape((rl.mdp.grid_rows, rl.mdp.grid_cols))).reshape((-1)).tolist()
+            state_locs = np.flipud(np.arange(rl.mdp.n).reshape((rl.mdp.grid_rows, rl.mdp.grid_cols)))
+            state_locs = state_locs.reshape((-1)).tolist()
             self.terminal_states = [state_locs.index(state) for state in rl.mdp.terminal_states]
 
             self.named_policy = zip(*[iter(rl.mdp.named_policy)]*4)[::-1]
             self.named_policy = [item for row in self.named_policy for item in row]
             
             self.title = title
+
+            if savefig:
+                if fig_path is None:
+                    fig_path = os.getcwd() + '/../figs'
+
+                if fig_name is None:
+                    title = title.translate(None, string.punctuation)
+                    fig_name = '_'.join(title.split()) + '.png'
+
+                full_path = os.path.join(fig_path, fig_name)
+            else:
+                full_path = None
                         
-            self.create_grid()
+            self.create_grid(savefig, full_path)
             plt.show()
 
 
@@ -248,7 +327,6 @@ class grid_display(object):
         warnings.simplefilter('ignore', MatplotlibDeprecationWarning)
         ax = self.grid.get_axes()
 
-        
         orient_dict = {'N':0, 'NE':7*np.pi/4., 'NW':np.pi/4., 'S':np.pi, 
                        'SE':5*np.pi/4., 'SW':3*np.pi/4., 'E':3*np.pi/2., 'W':np.pi/2.}
         
@@ -271,13 +349,18 @@ class grid_display(object):
                 orient = orient_dict[choice]
                 direct = arrow_loc[choice]
                 
-                ax.add_patch(patches.RegularPolygon((x + direct[0], y + direct[1]), 3, .05, color='white', orientation=orient))
+                ax.add_patch(patches.RegularPolygon((x + direct[0], y + direct[1]), 
+                                                    3, .05, color='white', orientation=orient))
             
             count += 1
         
     
-    def create_grid(self):
-        """Create and plot the grid with the values and policy."""
+    def create_grid(self, savefig, full_path):
+        """Create and plot the grid with the values and policy.
+
+        :param savefig: Bool indicating whether or not to save the figure.
+        :param full_path: String with combined file path and figure name.
+        """
         
         cmap = mcolors.LinearSegmentedColormap.from_list('cmap', ['red', 'black', 'limegreen'])
 
@@ -319,4 +402,6 @@ class grid_display(object):
             
         fig.set_size_inches((self.values.shape[1]*4, self.values.shape[0]*4))
 
-        plt.savefig('iterative_policy.png', facecolor='black')
+        if savefig:
+            plt.savefig(full_path, facecolor='black')
+
