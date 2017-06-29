@@ -8,6 +8,7 @@ from itertools import izip
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import matplotlib.patches as patches
+import matplotlib as mpl
 
 
 class grid_world_mdp(object):
@@ -284,6 +285,125 @@ class RL(object):
         self.mdp.pi[np.arange(self.mdp.pi.shape[0]), self.mdp.policy] = 1. 
 
 
+    def value_iteration(self, gamma=1.):
+        """Find the optimal value function and policy with value iteration.
+        
+        :param gamma: Float discounting factor for rewards.
+        """
+
+        # Initializing the value and policy function.
+        self.mdp.v = np.zeros(self.mdp.n)
+        self.mdp.policy = np.zeros(self.mdp.n, dtype=int)
+        self.mdp.action_vals = np.zeros((self.mdp.n, self.mdp.m))
+
+
+        max_eval = 1000
+
+        # Value iteration step which effectively combines evaluation and improvement.
+        for evaluation in xrange(max_eval):
+            
+            delta = 0
+
+            for s in self.mdp.states:            
+                v_temp = self.mdp.v[s].copy()       
+                
+                self.mdp.v[s] = max([sum(self.mdp.P[s, a, s_new] 
+                                     * (self.mdp.R[s, a, s_new] + gamma*self.mdp.v[s_new]) 
+                                     for s_new in self.mdp.states) for a in self.mdp.actions])
+
+                delta = max(delta, abs(v_temp - self.mdp.v[s]))
+
+            if delta < 1e-10:
+                break
+
+        # Finding the deterministic policy for the value function.
+        for s in self.mdp.states:
+            self.mdp.action_vals[s] = [sum(self.mdp.P[s, a, s_new] 
+                                           * (self.mdp.R[s, a, s_new] + gamma*self.mdp.v[s_new]) 
+                                           for s_new in self.mdp.states) for a in self.mdp.actions]
+
+        self.mdp.policy = np.argmax(self.mdp.action_vals, axis=1)
+    
+        self.get_named_policy()
+
+        # Policy probability distribution.
+        self.mdp.pi = np.zeros((self.mdp.n, self.mdp.m))
+        self.mdp.pi[np.arange(self.mdp.pi.shape[0]), self.mdp.policy] = 1. 
+
+
+    def one_step_temporal_difference(self, policy=None, gamma=1, num_episodes=100):
+        """Finding the value function for a policy using temporal difference.
+
+        :param policy: If using a new policy to evaluate pass as array.
+        :param gamma: Float discounting factor for rewards.
+        :param num_episodes: Integer number of episodes to run for.
+        """
+
+        if policy is None:
+            pass
+        else:
+            self.mdp.policy = policy
+        
+        self.mdp.v = np.zeros(self.mdp.n)
+
+        if not self.mdp.terminal_states:
+            print('Need to add terminal states: Exiting')
+            return
+
+        for episode in xrange(num_episodes):
+
+            s = np.random.choice(self.mdp.states)
+
+            while s not in self.mdp.terminal_states:
+                
+                a = self.mdp.policy[s]
+
+                # Sampling the resulting state with probability w.r.t transition probability.
+                sample = np.random.multinomial(1, self.mdp.P[s,a]).tolist()
+                s_new = sample.index(1)
+
+                self.mdp.v[s] = self.mdp.v[s] + gamma*(self.mdp.R[s,a,s_new] 
+                                                       + gamma*self.mdp.v[s_new] - self.mdp.v[s])
+
+                s = s_new
+
+
+    def on_policy_temporal_difference(self, gamma=1, num_episodes=1000, epsilon=.2, alpha=0.5):
+        """
+
+        """
+
+        self.mdp.q = np.zeros((self.mdp.n, self.mdp.m))
+
+        if not self.mdp.terminal_states:
+            print('Need to add terminal states: Exiting')
+            return
+
+        for episode in xrange(num_episodes):
+            s = np.random.choice(self.mdp.states)
+
+            if not np.random.binomial(1, epsilon):
+                a = np.argmax(self.mdp.q[s])
+            else:
+                a = np.random.choice(self.mdp.actions)
+
+            while s not in self.mdp.terminal_states:
+                sample = np.random.multinomial(1, self.mdp.P[s,a]).tolist()
+                s_new = sample.index(1)
+
+                if not np.random.binomial(1, epsilon):
+                    a_new = np.argmax(self.mdp.q[s_new])
+                else:
+                    a_new = np.random.choice(self.mdp.actions)
+
+                self.mdp.q[s,a] = self.mdp.q[s,a] + alpha*(self.mdp.R[s,a,s_new] 
+                                                           + gamma*self.mdp.q[s_new, a_new] 
+                                                           - self.mdp.q[s,a])
+
+                s = s_new
+                a = a_new
+
+
 class grid_display(object):
     def __init__(self, rl, title='Grid World', fig_path=None, fig_name=None, savefig=False):
             """Create and plot the grid with the values and policy.
@@ -295,17 +415,20 @@ class grid_display(object):
             # Flipping rows for plotting reasons.
             self.values = np.flipud(rl.mdp.v.reshape((rl.mdp.grid_rows, rl.mdp.grid_cols)))
 
-            # Converting terminal state locs to the flipped orientation.
-            state_locs = np.flipud(np.arange(rl.mdp.n).reshape((rl.mdp.grid_rows, rl.mdp.grid_cols)))
-            state_locs = state_locs.reshape((-1)).tolist()
-            self.terminal_states = [state_locs.index(state) for state in rl.mdp.terminal_states]
+            self.rl = rl
 
-            self.named_policy = zip(*[iter(rl.mdp.named_policy)]*4)[::-1]
+            # Converting terminal state locs to the flipped orientation.
+            state_locs = np.flipud(np.arange(self.rl.mdp.n).reshape((self.rl.mdp.grid_rows, self.rl.mdp.grid_cols)))
+            state_locs = state_locs.reshape((-1)).tolist()
+            self.terminal_states = [state_locs.index(state) for state in self.rl.mdp.terminal_states]
+
+            self.named_policy = zip(*[iter(self.rl.mdp.named_policy)]*self.rl.mdp.m)[::-1]
             self.named_policy = [item for row in self.named_policy for item in row]
             
             self.title = title
+            self.savefig = savefig
 
-            if savefig:
+            if self.savefig:
                 if fig_path is None:
                     fig_path = os.getcwd() + '/../figs'
 
@@ -313,15 +436,61 @@ class grid_display(object):
                     title = title.translate(None, string.punctuation)
                     fig_name = '_'.join(title.split()) + '.png'
 
-                full_path = os.path.join(fig_path, fig_name)
+                self.full_path = os.path.join(fig_path, fig_name)
             else:
-                full_path = None
-                        
-            self.create_grid(savefig, full_path)
-            plt.show()
+                self.full_path = None
 
 
-    def show_values(self):
+    def setup_grid(self):
+
+        self.cmap = mcolors.LinearSegmentedColormap.from_list('cmap', ['red', 'black', 'limegreen'])
+
+        rc('axes', linewidth=4)
+
+        self.fig, self.ax = plt.subplots(facecolor='black', edgecolor='white', linewidth=4)    
+
+        self.grid = self.ax.pcolor(self.values, edgecolors='white', linewidths=4, cmap=self.cmap, 
+                                   vmin=self.values.min(), vmax=self.values.max())
+
+
+    def finish_grid(self):
+
+        for spine in self.ax.spines.values():
+            spine.set_edgecolor('white')
+                
+        x_axis_size = self.values.shape[1]
+        y_axis_size = self.values.shape[0]
+
+        xlabels = [str(val) for val in range(0, x_axis_size)]
+        ylabels = [str(val) for val in range(y_axis_size-1, -1, -1)]
+
+        self.ax.set_xticks(np.arange(0.5, len(xlabels)))
+        self.ax.set_yticks(np.arange(0.5, len(ylabels)))
+
+        self.ax.set_xticklabels(xlabels)                                                       
+        self.ax.set_yticklabels(ylabels) 
+
+        self.ax.tick_params(axis='x', colors='white')
+        self.ax.tick_params(axis='y', colors='white')
+
+        for tick in self.ax.xaxis.get_major_ticks():
+            tick.label1.set_fontsize(24)
+            tick.label1.set_fontweight('bold')
+        for tick in self.ax.yaxis.get_major_ticks():
+            tick.label1.set_fontsize(24)
+            tick.label1.set_fontweight('bold')
+        
+        plt.title(self.title, color='white', fontsize='24', fontweight='bold')
+            
+        self.fig.set_size_inches((self.values.shape[1]*4, self.values.shape[0]*4))
+
+        if self.savefig:
+            plt.savefig(self.full_path, facecolor='black')
+
+        plt.show()
+
+
+    def show_v(self):
         """Add in the values for each square the policy."""
         
         warnings.simplefilter('ignore', MatplotlibDeprecationWarning)
@@ -353,55 +522,89 @@ class grid_display(object):
                                                     3, .05, color='white', orientation=orient))
             
             count += 1
-        
+
+
+    def show_q(self):
+        """
+
+        """
+
+        warnings.simplefilter('ignore', MatplotlibDeprecationWarning)
+        ax = self.grid.get_axes()
+
+        count = 0
+
+        for p, value, choice in izip(self.grid.get_paths(), self.grid.get_array(), self.named_policy):
+            x, y = p.vertices[:-2, :].mean(0)
+  
+            j = 0       
+            colors = {0:'red', 1:'blue', 2:'orange', 3:'white'}   
+            min_v = self.values.min()
+            max_v = self.values.max()
+
+            verts = [[] for a in range(self.rl.mdp.m)]
+            verts[0] = [x,y]
+            verts[-1] = [0,0]
+            codes = [mpl.path.Path.MOVETO, mpl.path.Path.LINETO, mpl.path.Path.LINETO, mpl.path.Path.CLOSEPOLY]
+
+            # W, N, E, S
+            dist_change = {0:(-.3,.0), 1:(0.,.3), 2:(.3,0), 3:(0,-.3)}
+
+            # N, S, E, W.
+            a_change = {0: 3, 1:0, 2:2, 3:1}
+            q_ = 0
+
+            for v in range(self.rl.mdp.m):
+  
+                if v == len(p.vertices) - 1:
+                    verts[1] = p.vertices[v]
+                    verts[2] = p.vertices[0]
+                else:
+                    verts[1] = p.vertices[v]
+                    verts[2] = p.vertices[v+1]
+
+                path = mpl.path.Path(verts, codes)
+
+                patch = patches.PathPatch(path, edgecolor='white', 
+                                          facecolor=self.cmap((self.q_values[count][a_change[v]] - min_v)/(max_v-min_v)), lw=4)
+                ax.add_patch(patch)
+
+                ax.text(x+dist_change[v][0], y+dist_change[v][1], "%.2f" % self.q_values[count][a_change[v]], 
+                        ha="center", va="center", color='white', fontweight='bold', fontsize='24')
+            
+            count += 1
+
     
-    def create_grid(self, savefig, full_path):
+    
+    def show_q_values(self):
         """Create and plot the grid with the values and policy.
 
         :param savefig: Bool indicating whether or not to save the figure.
         :param full_path: String with combined file path and figure name.
         """
         
-        cmap = mcolors.LinearSegmentedColormap.from_list('cmap', ['red', 'black', 'limegreen'])
+        self.setup_grid()
 
-        rc('axes', linewidth=4)
+        self.q_values = tuple(map(tuple, self.rl.mdp.q))
+        self.q_values = zip(*[iter(self.q_values)]*self.rl.mdp.m)[::-1]
+        self.q_values = [item for row in self.q_values for item in row]
 
-        fig, ax = plt.subplots(facecolor='black', edgecolor='white', linewidth=4)    
+        self.show_q()
 
-        self.grid = ax.pcolor(self.values, edgecolors='white', linewidths=4, cmap=cmap, 
-                              vmin=self.values.min(), vmax=self.values.max())
+        self.finish_grid()
 
-        self.show_values()
 
-        for spine in ax.spines.values():
-            spine.set_edgecolor('white')
-                
-        x_axis_size = self.values.shape[1]
-        y_axis_size = self.values.shape[0]
 
-        xlabels = [str(val) for val in range(0, x_axis_size)]
-        ylabels = [str(val) for val in range(y_axis_size-1, -1, -1)]
+    def show_values(self):
+        """Create and plot the grid with the values and policy.
 
-        ax.set_xticks(np.arange(0.5, len(xlabels)))
-        ax.set_yticks(np.arange(0.5, len(ylabels)))
-
-        ax.set_xticklabels(xlabels)                                                       
-        ax.set_yticklabels(ylabels) 
-
-        ax.tick_params(axis='x', colors='white')
-        ax.tick_params(axis='y', colors='white')
-
-        for tick in ax.xaxis.get_major_ticks():
-            tick.label1.set_fontsize(24)
-            tick.label1.set_fontweight('bold')
-        for tick in ax.yaxis.get_major_ticks():
-            tick.label1.set_fontsize(24)
-            tick.label1.set_fontweight('bold')
+        :param savefig: Bool indicating whether or not to save the figure.
+        :param full_path: String with combined file path and figure name.
+        """
         
-        plt.title(self.title, color='white', fontsize='24', fontweight='bold')
-            
-        fig.set_size_inches((self.values.shape[1]*4, self.values.shape[0]*4))
+        self.setup_grid()
 
-        if savefig:
-            plt.savefig(full_path, facecolor='black')
+        self.show_v()
+
+        self.finish_grid()
 
