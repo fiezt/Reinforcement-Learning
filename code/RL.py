@@ -3,6 +3,7 @@ from matplotlib.cbook import MatplotlibDeprecationWarning
 import warnings
 import os
 import string
+import itertools
 from pylab import rc
 from itertools import izip
 import matplotlib.pyplot as plt
@@ -52,7 +53,7 @@ class grid_world_mdp(object):
             
             # Action of N, NE, NW, S, SE, SW, E, W 
             self.actions_to_idx = {(-1,0): 0, (-1,1): 1, (-1,-1): 2, (1,0): 3, 
-                              (1,1): 4, (1,-1): 5, (0,1): 6, (0,-1): 7}
+                                    (1,1): 4, (1,-1): 5, (0,1): 6, (0,-1): 7}
             
             self.idx_to_actions = {v:k for k,v in self.actions_to_idx.items()}
             
@@ -117,7 +118,6 @@ class grid_world_mdp(object):
                 if new_pos in self.states_to_idx:
                     new_state = self.states_to_idx[new_pos]
                     self.P[state, action, new_state] = 1
-
                 else:
                     self.P[state, action, state] = 1
         
@@ -144,7 +144,26 @@ class grid_world_mdp(object):
 
         for state in self.terminal_states:
             self.R[state] = 0
+
     
+    def sample_transition(self, s, a):
+        """Sample the transition probability from the defined probability distribution.
+
+        This function samples the transition from the defined transition 
+        probability distribution in the form of a multinomial distribution in 
+        which the probability of each resulting state has probability equal to 
+        that of the true distribution of being sampled. The observed reward of 
+        this transition is sampled from the true reward distribution with 
+        Gaussian noise added.
+        """
+
+        sample = np.random.multinomial(1, self.P[s, a]).tolist()
+        s_new = sample.index(1)
+
+        sigma = 0
+        reward = np.random.normal(self.R[s, a, s_new], sigma)
+
+        return s_new, reward
     
     def check_valid_dist(self):
         """Checking the probability distribution sums to 1 for each action."""
@@ -157,7 +176,7 @@ class grid_world_mdp(object):
 class RL(object):
     def __init__(self, mdp):
         self.mdp = mdp
-        
+
     
     def iterative_policy_evaluation(self, pi=None, gamma=1):
         """Iterative policy evaluation finds the state value function for a policy.
@@ -202,19 +221,14 @@ class RL(object):
         """Given the value function find the policy for actions in states. """
         
         self.mdp.policy = np.zeros(self.mdp.n)
-        
         self.mdp.action_vals = np.zeros((self.mdp.n, self.mdp.m))
 
         for s in self.mdp.states:
-            
             for a in self.mdp.actions:
-                self.mdp.action_vals[s,a] = sum(self.mdp.P[s,a,s_new] * self.mdp.v[s_new] 
-                                                for s_new in self.mdp.states)
-            
-            # This break policies ties by taking the first index occurrence of the max.
-            best_action = np.argmax(self.mdp.action_vals[s])
-            
-            self.mdp.policy[s] = best_action
+                self.mdp.action_vals[s, a] = sum(self.mdp.P[s, a, s_new] * self.mdp.v[s_new] 
+                                                 for s_new in self.mdp.states)
+                        
+        self.mdp.policy = random_argmax(self.mdp.action_vals)
             
     
     def get_named_policy(self):
@@ -245,7 +259,7 @@ class RL(object):
                 
                 delta = 0
 
-                for s in self.mdp.states:            
+                for s in self.mdp.states:    
                     v_temp = self.mdp.v[s].copy()       
                     
                     a = self.mdp.policy[s]
@@ -262,14 +276,13 @@ class RL(object):
             stable = True
 
             for s in self.mdp.states:
-
                 old_policy = self.mdp.policy[s].copy()
 
                 self.mdp.action_vals[s] = [sum(self.mdp.P[s, a, s_new] 
                                                * (self.mdp.R[s, a, s_new] + gamma*self.mdp.v[s_new]) 
                                                for s_new in self.mdp.states) for a in self.mdp.actions]
 
-                self.mdp.policy[s] = np.argmax(self.mdp.action_vals[s])
+                self.mdp.policy[s] = random_argmax(self.mdp.action_vals[s])
 
                 if self.mdp.policy[s] != old_policy and stable:
                     stable = False
@@ -296,7 +309,6 @@ class RL(object):
         self.mdp.policy = np.zeros(self.mdp.n, dtype=int)
         self.mdp.action_vals = np.zeros((self.mdp.n, self.mdp.m))
 
-
         max_eval = 1000
 
         # Value iteration step which effectively combines evaluation and improvement.
@@ -322,13 +334,43 @@ class RL(object):
                                            * (self.mdp.R[s, a, s_new] + gamma*self.mdp.v[s_new]) 
                                            for s_new in self.mdp.states) for a in self.mdp.actions]
 
-        self.mdp.policy = np.argmax(self.mdp.action_vals, axis=1)
+        self.mdp.policy = random_argmax(self.mdp.action_vals)
     
         self.get_named_policy()
 
         # Policy probability distribution.
         self.mdp.pi = np.zeros((self.mdp.n, self.mdp.m))
         self.mdp.pi[np.arange(self.mdp.pi.shape[0]), self.mdp.policy] = 1. 
+
+
+    def q_value_iteration(self, gamma=1.):
+        """
+
+        """
+
+        self.mdp.q = np.zeros((self.mdp.n, self.mdp.m))
+
+        max_eval = 1000
+
+        for evaluation in xrange(max_eval):
+
+            delta = 0
+
+            for state_action in itertools.product(self.mdp.states, self.mdp.actions):
+                s = state_action[0]
+                a = state_action[1]
+
+                q_temp = self.mdp.q[s, a].copy()
+
+                self.mdp.q[s, a] = sum(self.mdp.P[s, a, s_new] 
+                                       * (self.mdp.R[s, a, s_new] 
+                                          + gamma*self.mdp.q[s_new, :].max()) 
+                                       for s_new in self.mdp.states)
+
+                delta = max(delta, abs(self.mdp.q[s, a] - q_temp))
+
+            if delta < 1e-10:
+                break
 
 
     def one_step_temporal_difference(self, policy=None, gamma=1, num_episodes=100):
@@ -355,23 +397,68 @@ class RL(object):
             s = np.random.choice(self.mdp.states)
 
             while s not in self.mdp.terminal_states:
-                
                 a = self.mdp.policy[s]
+                s_new, reward = self.mdp.sample_transition(s, a)
 
-                # Sampling the resulting state with probability w.r.t transition probability.
-                sample = np.random.multinomial(1, self.mdp.P[s,a]).tolist()
-                s_new = sample.index(1)
-
-                self.mdp.v[s] = self.mdp.v[s] + gamma*(self.mdp.R[s,a,s_new] 
-                                                       + gamma*self.mdp.v[s_new] - self.mdp.v[s])
+                self.mdp.v[s] = self.mdp.v[s] + gamma*(reward + gamma*self.mdp.v[s_new] - self.mdp.v[s])
 
                 s = s_new
 
 
-    def on_policy_temporal_difference(self, gamma=1, num_episodes=1000, epsilon=.2, alpha=0.5):
+    def epsilon_greedy(self, s):
         """
 
         """
+        if not np.random.binomial(1, self.epsilon):
+            a = random_argmax(self.mdp.q[s])
+        else:
+            a = np.random.choice(self.mdp.actions)
+
+        return a
+
+
+    def softmax(self, s):
+        """
+
+        """
+
+        exp = lambda s, a: np.exp(self.mdp.q[s, a]/self.tau) 
+        
+        total = sum(exp(s, a) for a in self.mdp.actions)
+
+        probs = [exp(s, a)/total for a in self.mdp.actions]
+
+        sample = np.random.multinomial(1, probs).tolist()
+        a = sample.index(1)
+
+        return a
+
+
+    def choose_action(self, s):
+        """
+
+        """
+
+        if self.policy == 'softmax':
+            a = self.softmax(s)
+        elif self.policy == 'e-greedy':
+            a = self.epsilon_greedy(s)
+        elif self.policy == 'greedy':
+            a = random_argmax(self.mdp.q[s])
+        else:
+            a = np.random.choice(self.mdp.actions)
+
+        return a
+
+
+    def sarsa(self, policy='softmax', epsilon=.2, tau=100, gamma=1, alpha=.5, num_episodes=1000):
+        """
+
+        """
+
+        self.epsilon = epsilon
+        self.tau = float(tau)
+        self.policy = policy
 
         self.mdp.q = np.zeros((self.mdp.n, self.mdp.m))
 
@@ -380,28 +467,50 @@ class RL(object):
             return
 
         for episode in xrange(num_episodes):
-            s = np.random.choice(self.mdp.states)
 
-            if not np.random.binomial(1, epsilon):
-                a = np.argmax(self.mdp.q[s])
-            else:
-                a = np.random.choice(self.mdp.actions)
+            s = np.random.choice(self.mdp.states)
+            a = np.random.choice(self.mdp.actions)
 
             while s not in self.mdp.terminal_states:
-                sample = np.random.multinomial(1, self.mdp.P[s,a]).tolist()
-                s_new = sample.index(1)
-
-                if not np.random.binomial(1, epsilon):
-                    a_new = np.argmax(self.mdp.q[s_new])
-                else:
-                    a_new = np.random.choice(self.mdp.actions)
-
-                self.mdp.q[s,a] = self.mdp.q[s,a] + alpha*(self.mdp.R[s,a,s_new] 
-                                                           + gamma*self.mdp.q[s_new, a_new] 
-                                                           - self.mdp.q[s,a])
+                s_new, reward = self.mdp.sample_transition(s, a)
+                a_new = self.choose_action(s_new)
+                
+                self.mdp.q[s, a] = self.mdp.q[s, a] + alpha*(reward 
+                                                            + gamma*self.mdp.q[s_new, a_new] 
+                                                            - self.mdp.q[s, a])
 
                 s = s_new
                 a = a_new
+
+
+    def q_learning(self, policy='softmax', epsilon=.2, tau=100, gamma=1, alpha=.5, num_episodes=1000):
+        """
+
+        """
+
+        self.epsilon = epsilon
+        self.tau = float(tau)
+        self.policy = policy
+
+        self.mdp.q = np.zeros((self.mdp.n, self.mdp.m))
+
+        if not self.mdp.terminal_states:
+            print('Need to add terminal states: Exiting')
+            return
+
+        for episode in xrange(num_episodes):
+
+            s = np.random.choice(self.mdp.states)
+
+            while s not in self.mdp.terminal_states:
+                a = self.choose_action(s)
+                s_new, reward = self.mdp.sample_transition(s, a)
+
+                self.mdp.q[s, a] = self.mdp.q[s, a] + alpha*(reward
+                                                           + gamma*self.mdp.q[s_new].max()
+                                                           - self.mdp.q[s, a])
+
+                s = s_new
 
 
 class grid_display(object):
@@ -543,8 +652,8 @@ class grid_display(object):
             max_v = self.values.max()
 
             verts = [[] for a in range(self.rl.mdp.m)]
-            verts[0] = [x,y]
-            verts[-1] = [0,0]
+            verts[0] = [x, y]
+            verts[-1] = [0, 0]
             codes = [mpl.path.Path.MOVETO, mpl.path.Path.LINETO, mpl.path.Path.LINETO, mpl.path.Path.CLOSEPOLY]
 
             # W, N, E, S
@@ -608,3 +717,19 @@ class grid_display(object):
 
         self.finish_grid()
 
+
+def random_argmax(arr):
+    """Helper functio to get the argmax of an array breaking ties randomly."""
+
+    if len(arr.shape) == 1:
+        choice = np.random.choice(np.flatnonzero(arr == arr.max()))
+        return choice
+    else:
+        N = arr.shape[0]
+        argmax_array = np.zeros(N)
+
+        for i in xrange(N):
+            choice = np.random.choice(np.flatnonzero(arr[i] == arr[i].max()))
+            argmax_array[i] = choice
+
+        return argmax_array.astype(int)
