@@ -92,12 +92,17 @@ class grid_world_mdp(object):
             self.P = prob_func(self)
         
     
-    def get_prob_dist(self):
+    def get_prob_dist(self, noise=0.0):
         """
         Default function to create a probability distribution for the MDP.
         This is a noiseless distribution. If the agent takes action 0, it will
         go to the desired location with probability 1, if the action is legal, 
         else if will have probability 0 of going to it and 1 of staying in its state.
+        Noise can be added to create probability of not taking the selected action.
+
+        :param noise: Float in (0,1) indicating the probability of not taking 
+        the intended action, this probability will be uniformly distributed 
+        over all other actions.
         """
         
         self.P = np.zeros((self.n, self.m, self.n))
@@ -117,9 +122,23 @@ class grid_world_mdp(object):
 
                 if new_pos in self.states_to_idx:
                     new_state = self.states_to_idx[new_pos]
-                    self.P[state, action, new_state] = 1
+                    self.P[state, action, new_state] = 1 - noise
                 else:
-                    self.P[state, action, state] = 1
+                    self.P[state, action, state] = 1 - noise
+
+                # Adding probability of taking an action that is not chosen.
+                for noisy_action in actions:
+                    if noisy_action == action:
+                        continue
+
+                    new_pos = (curr_pos[0] + self.idx_to_actions[noisy_action][0], 
+                               curr_pos[1] + self.idx_to_actions[noisy_action][1])
+
+                    if new_pos in self.states_to_idx:
+                        new_state = self.states_to_idx[new_pos]
+                        self.P[state, noisy_action, new_state] = noise/float(self.mdp.m - 1)
+                    else:
+                        self.P[state, noisy_action, state] = noise/float(self.mdp.m - 1)
         
     
     def create_rewards(self, reward_func=None):
@@ -134,19 +153,28 @@ class grid_world_mdp(object):
             self.R = reward_func(self)
         
     
-    def get_rewards(self):
+    def get_rewards(self, noise=0.0):
         """
         The default reward structure. -1 for all actions, except 0 if 
-        going to terminal state.
+        going to terminal state. The noise parameter can be used to make the 
+        rewards not uniform by adding in Gaussian noise with mean 0 and standard
+        deviation of the noise to each of the state, action, next state rewards.
+
+        :param noise: Float indicating the standard deviation for 0 mean Gaussian
+        noise to add into each reward for a state, action, next state tuple.
         """
         
+        noise_array = np.random.normal(0, noise, (self.n, self.m, self.m))
         self.R = -1*np.ones((self.n, self.m, self.n))
+
+        # Adding noise selected so not all rewards are equal.
+        self.R = noise_array + self.R
 
         for state in self.terminal_states:
             self.R[state] = 0
 
     
-    def sample_transition(self, s, a):
+    def sample_transition(self, s, a, sigma=0.0):
         """Sample the transition probability from the defined probability distribution.
 
         This function samples the transition from the defined transition 
@@ -155,16 +183,24 @@ class grid_world_mdp(object):
         that of the true distribution of being sampled. The observed reward of 
         this transition is sampled from the true reward distribution with 
         Gaussian noise added.
+
+        :param s: Integer index of the current state index the agent is in.
+        :param a: Integer index of the action index the agent is taking.
+        :param sigma: The standard deviation of the noise to add in when sampling
+        a reward for the transition.
+
+        :return s_new: Integer index of the resulting new state for the transition.
+        :return reward: Float of the sampled reward of the transition.
         """
 
         sample = np.random.multinomial(1, self.P[s, a]).tolist()
         s_new = sample.index(1)
 
-        sigma = 0
         reward = np.random.normal(self.R[s, a, s_new], sigma)
 
         return s_new, reward
     
+
     def check_valid_dist(self):
         """Checking the probability distribution sums to 1 for each action."""
         
@@ -182,7 +218,7 @@ class RL(object):
         """Iterative policy evaluation finds the state value function for a policy.
 
         :param pi: Probability distribution of actions given states.
-        :param gamma: Float discount factor in (0,1]
+        :param gamma: Float discounting factor for the rewards in (0,1].
         """
         
         # Random policy if a policy is not provided.
@@ -213,7 +249,6 @@ class RL(object):
                 break
         
         self.get_iterative_policy()
-        
         self.get_named_policy()
 
     
@@ -237,19 +272,18 @@ class RL(object):
         self.mdp.named_policy = [self.mdp.idx_to_action_names[a] for a in self.mdp.policy]    
 
 
-    def policy_iteration(self, gamma=1.):
+    def policy_iteration(self, gamma=1., max_iter=1000, max_eval=100):
         """Finds optimal policy and the value function for that policy.
         
-        :param gamma: Float discounting factor for rewards.
+        :param gamma: Float discounting factor for rewards in (0,1].
+        :param max_iter: Integer max number of iterations to run policy iteration.
+        :param max_eval: Integer max number of evaluations to run policy evaluation.
         """
         
         # Initializing the value and policy function.
         self.mdp.v = np.zeros(self.mdp.n)
         self.mdp.policy = np.zeros(self.mdp.n, dtype=int)
         self.mdp.action_vals = np.zeros((self.mdp.n, self.mdp.m))
-
-        max_iter = 1000
-        max_eval = 100
 
         # Policy evaluation followed by policy improvement until convergence.
         for iteration in xrange(max_iter):
@@ -261,8 +295,8 @@ class RL(object):
 
                 for s in self.mdp.states:    
                     v_temp = self.mdp.v[s].copy()       
-                    
                     a = self.mdp.policy[s]
+
                     self.mdp.v[s] = sum(self.mdp.P[s, a, s_new] 
                                         * (self.mdp.R[s, a, s_new] + gamma*self.mdp.v[s_new]) 
                                         for s_new in self.mdp.states)
@@ -298,18 +332,17 @@ class RL(object):
         self.mdp.pi[np.arange(self.mdp.pi.shape[0]), self.mdp.policy] = 1. 
 
 
-    def value_iteration(self, gamma=1.):
+    def value_iteration(self, gamma=1., max_eval=1000):
         """Find the optimal value function and policy with value iteration.
         
-        :param gamma: Float discounting factor for rewards.
+        :param gamma: Float discounting factor for rewards in (0,1].
+        :param max_eval: Integer max number of evaluations to do for value iteration.
         """
 
         # Initializing the value and policy function.
         self.mdp.v = np.zeros(self.mdp.n)
         self.mdp.policy = np.zeros(self.mdp.n, dtype=int)
         self.mdp.action_vals = np.zeros((self.mdp.n, self.mdp.m))
-
-        max_eval = 1000
 
         # Value iteration step which effectively combines evaluation and improvement.
         for evaluation in xrange(max_eval):
@@ -343,14 +376,17 @@ class RL(object):
         self.mdp.pi[np.arange(self.mdp.pi.shape[0]), self.mdp.policy] = 1. 
 
 
-    def q_value_iteration(self, gamma=1.):
-        """
+    def q_value_iteration(self, gamma=1., max_eval=1000):
+        """Find the optimal q function using q value iteration.
 
+        The optimal value function and policy are also updated using the optimal
+        q function that is found.
+
+        :param gamma: Float discounting factor for rewards in (0,1].
+        :param max_eval: Integer max number of evaluations to do for q value iteration.
         """
 
         self.mdp.q = np.zeros((self.mdp.n, self.mdp.m))
-
-        max_eval = 1000
 
         for evaluation in xrange(max_eval):
 
@@ -372,13 +408,17 @@ class RL(object):
             if delta < 1e-10:
                 break
 
+        self.mdp.v = self.mdp.q.max(axis=1)
+        self.mdp.policy = random_argmax(self.mdp.q)
+        self.get_named_policy()
+
 
     def one_step_temporal_difference(self, policy=None, gamma=1, num_episodes=100):
         """Finding the value function for a policy using temporal difference.
 
         :param policy: If using a new policy to evaluate pass as array.
-        :param gamma: Float discounting factor for rewards.
-        :param num_episodes: Integer number of episodes to run for.
+        :param gamma: Float discounting factor for rewards in (0,1].
+        :param num_episodes: Integer number of episodes to run one step TD.
         """
 
         if policy is None:
@@ -406,9 +446,16 @@ class RL(object):
 
 
     def epsilon_greedy(self, s):
+        """Epsilon greedy exploration-exploitation strategy.
+
+        This policy strategy selects the current best action with probability
+        of 1 - epsilon, and a random action with probability epsilon.
+        
+        :param s: Integer index of the current state index the agent is in.
+
+        :return a: Integer index of the chosen index for the agent to take.
         """
 
-        """
         if not np.random.binomial(1, self.epsilon):
             a = random_argmax(self.mdp.q[s])
         else:
@@ -418,8 +465,15 @@ class RL(object):
 
 
     def softmax(self, s):
-        """
+        """Softmax exploration-exploitation strategy.
 
+        This policy strategy uses a boltzman distribution with a temperature 
+        parameter tau, to assign the probabilities of choosing an action based
+        off of the current q value of the state and action.
+
+        :param s: Integer index of the current state index the agent is in.
+
+        :return a: Integer index of the chosen index for the agent to take.
         """
 
         exp = lambda s, a: np.exp(self.mdp.q[s, a]/self.tau) 
@@ -435,15 +489,21 @@ class RL(object):
 
 
     def choose_action(self, s):
+        """Choose action for a TD algorithm that is updating using q values.
+
+        The policy strategy for choosing an action is either chosen using a
+        softmax strategy, epsilon greedy strategy, greedy strategy, or a random strategy.
+
+        :param s: Integer index of the current state index the agent is in.
+
+        :return a: Integer index of the chosen index for the action to take.
         """
 
-        """
-
-        if self.policy == 'softmax':
+        if self.policy_strategy == 'softmax':
             a = self.softmax(s)
-        elif self.policy == 'e-greedy':
+        elif self.policy_strategy == 'e-greedy':
             a = self.epsilon_greedy(s)
-        elif self.policy == 'greedy':
+        elif self.policy_strategy == 'greedy':
             a = random_argmax(self.mdp.q[s])
         else:
             a = np.random.choice(self.mdp.actions)
@@ -451,14 +511,23 @@ class RL(object):
         return a
 
 
-    def sarsa(self, policy='softmax', epsilon=.2, tau=100, gamma=1, alpha=.5, num_episodes=1000):
-        """
+    def sarsa(self, policy_strategy='softmax', epsilon=.2, tau=100, gamma=1, 
+              alpha=.5, num_episodes=1000):
+        """Finding the q function using the on policy TD method SARSA.
 
+        :param policy_strategy: String indicating policy strategy to choose actions with.
+        :param epsilon: Float epsilon value in (0, 1) indicating probability of 
+        taking random action with the epsilon greedy policy strategy.
+        :param tau: Float value for temperature parameter to use in the softmax
+        policy strategy.
+        :param gamma: Float discounting factor for rewards in (0,1].
+        :param alpha: Float step size parameter for TD step. Typically in (0,1].
+        :param num_episodes: Integer number of episodes to run algorithm.
         """
 
         self.epsilon = epsilon
         self.tau = float(tau)
-        self.policy = policy
+        self.policy_strategy = policy_strategy
 
         self.mdp.q = np.zeros((self.mdp.n, self.mdp.m))
 
@@ -482,15 +551,28 @@ class RL(object):
                 s = s_new
                 a = a_new
 
+        self.mdp.v = self.mdp.q.max(axis=1)
+        self.mdp.policy = random_argmax(self.mdp.q)
+        self.get_named_policy()
 
-    def q_learning(self, policy='softmax', epsilon=.2, tau=100, gamma=1, alpha=.5, num_episodes=1000):
-        """
 
+    def q_learning(self, policy_strategy='softmax', epsilon=.2, tau=100, gamma=1, 
+                   alpha=.5, num_episodes=1000):
+        """Finding the q function using the off policy TD method q-learning.
+
+        :param policy_strategy: String indicating policy strategy to choose actions with.
+        :param epsilon: Float epsilon value in (0, 1) indicating probability of 
+        taking random action with the epsilon greedy policy strategy.
+        :param tau: Float value for temperature parameter to use in the softmax
+        policy strategy.
+        :param gamma: Float discounting factor for rewards in (0,1].
+        :param alpha: Float step size parameter for TD step. Typically in (0,1].
+        :param num_episodes: Integer number of episodes to run algorithm.
         """
 
         self.epsilon = epsilon
         self.tau = float(tau)
-        self.policy = policy
+        self.policy_strategy = policy_strategy
 
         self.mdp.q = np.zeros((self.mdp.n, self.mdp.m))
 
@@ -511,6 +593,10 @@ class RL(object):
                                                            - self.mdp.q[s, a])
 
                 s = s_new
+
+        self.mdp.v = self.mdp.q.max(axis=1)
+        self.mdp.policy = random_argmax(self.mdp.q)
+        self.get_named_policy()
 
 
 class grid_display(object):
