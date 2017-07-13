@@ -14,7 +14,7 @@ import matplotlib as mpl
 
 class grid_world_mdp(object):
     def __init__(self, grid_rows, grid_cols, actions, terminal_states=[0,15], 
-                 prob_func=None, reward_func=None):
+                 prob_noise=0.0, reward_noise=0.0, prob_func=None, reward_func=None):
         """Creating the grid world MDP. Note that everything is indexed by 
         row, column, not x, y coordinates.
 
@@ -22,6 +22,8 @@ class grid_world_mdp(object):
         :param grid_cols: Integer number of cols for which to make the grid.
         :param actions: Integer that must be 4 or 8. These will be compass directions.
         :param terminal_states: List or None, of the terminal states as integers.
+        :param prob_noise: Float in [0,1] to use as noise in the transition function.
+        :param reward_noise: Float as standard deviation for Gaussian noise in the reward function.
         :param prob_func: Function to create a different probability distribution if needed.
         :param reward_func: Function to create a different reward structure if needed.
         """
@@ -73,23 +75,26 @@ class grid_world_mdp(object):
         else:
             self.terminal_states = terminal_states
         
-        self.create_prob_dist(prob_func)
+        self.create_prob_dist(prob_noise, prob_func)
         
-        self.create_rewards(reward_func)
+        self.create_rewards(reward_noise, reward_func)
         
         self.check_valid_dist()
         
     
-    def create_prob_dist(self, prob_func=None):
+    def create_prob_dist(self, noise=0.0, prob_func=None):
         """Creating the probability distribution for the MDP.
 
+        :param noise: Float in (0,1) indicating the probability of not taking 
+        the intended action, this probability will be uniformly distributed 
+        over all other actions.
         :param prob_func: Optional alternative function to create prob distribution.
         """
         
         if prob_func is None:
-            self.get_prob_dist()
+            self.get_prob_dist(noise)
         else:
-            self.P = prob_func(self)
+            self.P = prob_func(self, noise)
         
     
     def get_prob_dist(self, noise=0.0):
@@ -127,7 +132,7 @@ class grid_world_mdp(object):
                     self.P[state, action, state] = 1 - noise
 
                 # Adding probability of taking an action that is not chosen.
-                for noisy_action in actions:
+                for noisy_action in self.actions:
                     if noisy_action == action:
                         continue
 
@@ -136,21 +141,23 @@ class grid_world_mdp(object):
 
                     if new_pos in self.states_to_idx:
                         new_state = self.states_to_idx[new_pos]
-                        self.P[state, noisy_action, new_state] = noise/float(self.mdp.m - 1)
+                        self.P[state, action, new_state] = noise/float(self.m - 1)
                     else:
-                        self.P[state, noisy_action, state] = noise/float(self.mdp.m - 1)
+                        self.P[state, action, state] += noise/float(self.m - 1)
         
     
-    def create_rewards(self, reward_func=None):
+    def create_rewards(self, noise=0.0, reward_func=None):
         """Creating the reward structure for the MDP.
 
+        :param noise: Float indicating the standard deviation for 0 mean Gaussian
+        noise to add into each reward for a state, action, next state tuple.
         :param reward_func: Optional alternative function to create reward distribution.
         """
         
         if reward_func is None:
-            self.get_rewards()
+            self.get_rewards(noise)
         else:
-            self.R = reward_func(self)
+            self.R = reward_func(self, noise)
         
     
     def get_rewards(self, noise=0.0):
@@ -164,7 +171,7 @@ class grid_world_mdp(object):
         noise to add into each reward for a state, action, next state tuple.
         """
         
-        noise_array = np.random.normal(0, noise, (self.n, self.m, self.m))
+        noise_array = np.random.normal(0, noise, (self.n, self.m, self.n))
         self.R = -1*np.ones((self.n, self.m, self.n))
 
         # Adding noise selected so not all rewards are equal.
@@ -203,7 +210,7 @@ class grid_world_mdp(object):
 
     def check_valid_dist(self):
         """Checking the probability distribution sums to 1 for each action."""
-        
+
         for state in xrange(self.n):
             for action in xrange(self.m):
                 assert abs(sum(self.P[state, action, :]) - 1) < 1e-3, 'Transitions do not sum to 1'
@@ -214,11 +221,12 @@ class RL(object):
         self.mdp = mdp
 
     
-    def iterative_policy_evaluation(self, pi=None, gamma=1):
+    def iterative_policy_evaluation(self, pi=None, gamma=1, max_iter=5000):
         """Iterative policy evaluation finds the state value function for a policy.
 
         :param pi: Probability distribution of actions given states.
         :param gamma: Float discounting factor for the rewards in (0,1].
+        :param max_iter: Integer max number of iterations to run iterative policy evaluation.
         """
         
         # Random policy if a policy is not provided.
@@ -228,8 +236,6 @@ class RL(object):
             self.mdp.pi = pi
         
         self.mdp.v = np.zeros(self.mdp.n)
-
-        max_iter = 1000
 
         for iteration in xrange(max_iter):
             
@@ -272,7 +278,7 @@ class RL(object):
         self.mdp.named_policy = [self.mdp.idx_to_action_names[a] for a in self.mdp.policy]    
 
 
-    def policy_iteration(self, gamma=1., max_iter=1000, max_eval=100):
+    def policy_iteration(self, gamma=1., max_iter=5000, max_eval=100):
         """Finds optimal policy and the value function for that policy.
         
         :param gamma: Float discounting factor for rewards in (0,1].
@@ -332,7 +338,7 @@ class RL(object):
         self.mdp.pi[np.arange(self.mdp.pi.shape[0]), self.mdp.policy] = 1. 
 
 
-    def value_iteration(self, gamma=1., max_eval=1000):
+    def value_iteration(self, gamma=1., max_eval=5000):
         """Find the optimal value function and policy with value iteration.
         
         :param gamma: Float discounting factor for rewards in (0,1].
@@ -368,7 +374,6 @@ class RL(object):
                                            for s_new in self.mdp.states) for a in self.mdp.actions]
 
         self.mdp.policy = random_argmax(self.mdp.action_vals)
-    
         self.get_named_policy()
 
         # Policy probability distribution.
@@ -376,7 +381,7 @@ class RL(object):
         self.mdp.pi[np.arange(self.mdp.pi.shape[0]), self.mdp.policy] = 1. 
 
 
-    def q_value_iteration(self, gamma=1., max_eval=1000):
+    def q_value_iteration(self, gamma=1., max_eval=5000):
         """Find the optimal q function using q value iteration.
 
         The optimal value function and policy are also updated using the optimal
@@ -412,21 +417,34 @@ class RL(object):
         self.mdp.policy = random_argmax(self.mdp.q)
         self.get_named_policy()
 
+        # Policy probability distribution.
+        self.mdp.pi = np.zeros((self.mdp.n, self.mdp.m))
+        self.mdp.pi[np.arange(self.mdp.pi.shape[0]), self.mdp.policy] = 1. 
 
-    def one_step_temporal_difference(self, policy=None, gamma=1, num_episodes=100):
+
+    def one_step_temporal_difference(self, policy=None, gamma=1, alpha=None, num_episodes=5000):
         """Finding the value function for a policy using temporal difference.
 
         :param policy: If using a new policy to evaluate pass as array.
         :param gamma: Float discounting factor for rewards in (0,1].
+        :param alpha: Float step size parameter for TD step. Typically in (0,1].
+        If no value is provided a step that is proportional to the number of visits
+        to a state and an action will be chosen.
         :param num_episodes: Integer number of episodes to run one step TD.
         """
+
+        self.mdp.v = np.zeros(self.mdp.n)
+        self.visited_states = np.zeros((self.mdp.n, self.mdp.m))
 
         if policy is None:
             pass
         else:
             self.mdp.policy = policy
-        
-        self.mdp.v = np.zeros(self.mdp.n)
+
+        if alpha is None:
+            smart_step = True
+        else:
+            smart_step = False
 
         if not self.mdp.terminal_states:
             print('Need to add terminal states: Exiting')
@@ -440,7 +458,12 @@ class RL(object):
                 a = self.mdp.policy[s]
                 s_new, reward = self.mdp.sample_transition(s, a)
 
-                self.mdp.v[s] = self.mdp.v[s] + gamma*(reward + gamma*self.mdp.v[s_new] - self.mdp.v[s])
+                self.visited_states[s, a] += 1.
+
+                if smart_step:
+                    alpha = 1/self.visited_states[s, a]
+
+                self.mdp.v[s] = self.mdp.v[s] + alpha*(reward + gamma*self.mdp.v[s_new] - self.mdp.v[s])
 
                 s = s_new
 
@@ -511,8 +534,8 @@ class RL(object):
         return a
 
 
-    def sarsa(self, policy_strategy='softmax', epsilon=.2, tau=100, gamma=1, 
-              alpha=.5, num_episodes=1000):
+    def sarsa(self, policy_strategy='softmax', epsilon=.2, tau=.1, gamma=1, 
+              alpha=None, num_episodes=5000):
         """Finding the q function using the on policy TD method SARSA.
 
         :param policy_strategy: String indicating policy strategy to choose actions with.
@@ -522,14 +545,21 @@ class RL(object):
         policy strategy.
         :param gamma: Float discounting factor for rewards in (0,1].
         :param alpha: Float step size parameter for TD step. Typically in (0,1].
+        If no value is provided a step that is proportional to the number of visits
+        to a state and an action will be chosen.
         :param num_episodes: Integer number of episodes to run algorithm.
         """
 
         self.epsilon = epsilon
         self.tau = float(tau)
         self.policy_strategy = policy_strategy
-
         self.mdp.q = np.zeros((self.mdp.n, self.mdp.m))
+        self.visited_states = np.zeros((self.mdp.n, self.mdp.m))
+
+        if alpha is None:
+            smart_step = True
+        else:
+            smart_step = False
 
         if not self.mdp.terminal_states:
             print('Need to add terminal states: Exiting')
@@ -543,6 +573,11 @@ class RL(object):
             while s not in self.mdp.terminal_states:
                 s_new, reward = self.mdp.sample_transition(s, a)
                 a_new = self.choose_action(s_new)
+
+                self.visited_states[s, a] += 1.
+
+                if smart_step:
+                    alpha = 1/self.visited_states[s, a]
                 
                 self.mdp.q[s, a] = self.mdp.q[s, a] + alpha*(reward 
                                                             + gamma*self.mdp.q[s_new, a_new] 
@@ -557,7 +592,7 @@ class RL(object):
 
 
     def q_learning(self, policy_strategy='softmax', epsilon=.2, tau=100, gamma=1, 
-                   alpha=.5, num_episodes=1000):
+                   alpha=None, num_episodes=5000):
         """Finding the q function using the off policy TD method q-learning.
 
         :param policy_strategy: String indicating policy strategy to choose actions with.
@@ -567,14 +602,21 @@ class RL(object):
         policy strategy.
         :param gamma: Float discounting factor for rewards in (0,1].
         :param alpha: Float step size parameter for TD step. Typically in (0,1].
+        If no value is provided a step that is proportional to the number of visits
+        to a state and an action will be chosen.
         :param num_episodes: Integer number of episodes to run algorithm.
         """
 
         self.epsilon = epsilon
         self.tau = float(tau)
         self.policy_strategy = policy_strategy
-
         self.mdp.q = np.zeros((self.mdp.n, self.mdp.m))
+        self.visited_states = np.zeros((self.mdp.n, self.mdp.m))
+
+        if alpha is None:
+            smart_step = True
+        else:
+            smart_step = False
 
         if not self.mdp.terminal_states:
             print('Need to add terminal states: Exiting')
@@ -587,6 +629,11 @@ class RL(object):
             while s not in self.mdp.terminal_states:
                 a = self.choose_action(s)
                 s_new, reward = self.mdp.sample_transition(s, a)
+
+                self.visited_states[s, a] += 1.
+
+                if smart_step:
+                    alpha = 1/self.visited_states[s, a]
 
                 self.mdp.q[s, a] = self.mdp.q[s, a] + alpha*(reward
                                                            + gamma*self.mdp.q[s_new].max()
