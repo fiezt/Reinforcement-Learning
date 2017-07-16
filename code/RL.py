@@ -599,6 +599,7 @@ class RL(object):
         self.epsilon = epsilon
         self.tau = float(tau)
         self.policy_strategy = policy_strategy
+
         self.mdp.q = np.zeros((self.mdp.n, self.mdp.m))
         self.visited_states = np.zeros((self.mdp.n, self.mdp.m))
 
@@ -656,6 +657,7 @@ class RL(object):
         self.epsilon = epsilon
         self.tau = float(tau)
         self.policy_strategy = policy_strategy
+
         self.mdp.q = np.zeros((self.mdp.n, self.mdp.m))
         self.visited_states = np.zeros((self.mdp.n, self.mdp.m))
 
@@ -1085,7 +1087,3 @@ def random_argmax(arr):
         argmax_array = argmax_array.astype(int)
 
         return argmax_array
-
-
-
-def 
