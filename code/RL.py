@@ -463,9 +463,33 @@ class RL(object):
                 if smart_step:
                     alpha = 1/self.visited_states[s, a]
 
-                self.mdp.v[s] = self.mdp.v[s] + alpha*(reward + gamma*self.mdp.v[s_new] - self.mdp.v[s])
+                self.mdp.v[s] = self.mdp.v[s] + alpha*(reward + gamma*self.mdp.v[s_new] 
+                                                       - self.mdp.v[s])
 
                 s = s_new
+
+
+    def choose_action(self, s):
+        """Choose action for a TD algorithm that is updating using q values.
+
+        The policy strategy for choosing an action is either chosen using a
+        softmax strategy, epsilon greedy strategy, greedy strategy, or a random strategy.
+
+        :param s: Integer index of the current state index the agent is in.
+
+        :return a: Integer index of the chosen index for the action to take.
+        """
+
+        if self.policy_strategy == 'softmax':
+            a = self.softmax(s)
+        elif self.policy_strategy == 'e-greedy':
+            a = self.epsilon_greedy(s)
+        elif self.policy_strategy == 'greedy':
+            a = random_argmax(self.mdp.q[s])
+        else:
+            a = np.random.choice(self.mdp.actions)
+
+        return a
 
 
     def epsilon_greedy(self, s):
@@ -511,27 +535,49 @@ class RL(object):
         return a
 
 
-    def choose_action(self, s):
-        """Choose action for a TD algorithm that is updating using q values.
+    def value_func(self, x):
+        """Using a chosen value function to map the given value to that value function."""
 
-        The policy strategy for choosing an action is either chosen using a
-        softmax strategy, epsilon greedy strategy, greedy strategy, or a random strategy.
+        if self.util_choice == 'prospect':
+            u = self.prospect_utility(x)
+        elif self.util_choice == 'entropic':
+            u = self.entropic_utility(x)
+        elif self.util_choice == 'log':
+            u = self.log_utility(x)
+        else: 
+            # In the case a value function is not provided the reward remains the same.
+            u = x
 
-        :param s: Integer index of the current state index the agent is in.
+        return u
 
-        :return a: Integer index of the chosen index for the action to take.
-        """
 
-        if self.policy_strategy == 'softmax':
-            a = self.softmax(s)
-        elif self.policy_strategy == 'e-greedy':
-            a = self.epsilon_greedy(s)
-        elif self.policy_strategy == 'greedy':
-            a = random_argmax(self.mdp.q[s])
-        else:
-            a = np.random.choice(self.mdp.actions)
+    def prospect_value(self, y):
+        """Mapping a value to a prospect theory utility value."""
 
-        return a
+        if y > self.ref:
+            u = self.c_plus * (y - self.ref)**self.rho_plus
+        elif y <= self.ref:
+            u = -self.c_minus * (self.ref - y)**self.rho_minus
+
+        return u
+
+
+    def entropic_value(self, y):
+        """Mapping a value to a entropic utility value."""
+
+        u = np.exp(self.lamb*y)
+        return u
+
+
+    def log_value(self, y):
+        """Mapping a value to logarithm utility value."""
+
+        if y > self.ref:
+            u = self.c_plus * np.log(1 + self.rho_plus*(y - self.ref))
+        elif y <= self.ref:
+            u = -self.c_minus * np.log(1 + self.rho_minus*(self.ref - y))
+
+        return u
 
 
     def sarsa(self, policy_strategy='softmax', epsilon=.2, tau=.1, gamma=1, 
@@ -542,7 +588,7 @@ class RL(object):
         :param epsilon: Float epsilon value in (0, 1) indicating probability of 
         taking random action with the epsilon greedy policy strategy.
         :param tau: Float value for temperature parameter to use in the softmax
-        policy strategy.
+        policy strategy. tau -> 0 = greedy, tau -> infinity = random.
         :param gamma: Float discounting factor for rewards in (0,1].
         :param alpha: Float step size parameter for TD step. Typically in (0,1].
         If no value is provided a step that is proportional to the number of visits
@@ -580,8 +626,8 @@ class RL(object):
                     alpha = 1/self.visited_states[s, a]
                 
                 self.mdp.q[s, a] = self.mdp.q[s, a] + alpha*(reward 
-                                                            + gamma*self.mdp.q[s_new, a_new] 
-                                                            - self.mdp.q[s, a])
+                                                             + gamma*self.mdp.q[s_new, a_new] 
+                                                             - self.mdp.q[s, a])
 
                 s = s_new
                 a = a_new
@@ -599,7 +645,7 @@ class RL(object):
         :param epsilon: Float epsilon value in (0, 1) indicating probability of 
         taking random action with the epsilon greedy policy strategy.
         :param tau: Float value for temperature parameter to use in the softmax
-        policy strategy.
+        policy strategy. tau -> 0 = greedy, tau -> infinity = random.
         :param gamma: Float discounting factor for rewards in (0,1].
         :param alpha: Float step size parameter for TD step. Typically in (0,1].
         If no value is provided a step that is proportional to the number of visits
@@ -636,8 +682,172 @@ class RL(object):
                     alpha = 1/self.visited_states[s, a]
 
                 self.mdp.q[s, a] = self.mdp.q[s, a] + alpha*(reward
-                                                           + gamma*self.mdp.q[s_new].max()
-                                                           - self.mdp.q[s, a])
+                                                             + gamma*self.mdp.q[s_new].max()
+                                                             - self.mdp.q[s, a])
+
+                s = s_new
+
+        self.mdp.v = self.mdp.q.max(axis=1)
+        self.mdp.policy = random_argmax(self.mdp.q)
+        self.get_named_policy()
+
+
+    def risk_q_learning(self, util_choice='prospect', policy_strategy='softmax', 
+                        epsilon=.2, tau=100, gamma=1, alpha=None, ref=0, 
+                        c_minus=1, c_plus=1, rho_minus=1, rho_plus=1, lamb=1, 
+                        num_episodes=5000):
+            """Finding the q function using risk sensitive q learning mapping 
+            temporal differences through a value function.
+            
+            :param util_choice: String indicting value function to map TD with.
+            :param policy_strategy: String indicating policy strategy to choose actions with.
+            :param epsilon: Float epsilon value in (0, 1) indicating probability of 
+            taking random action with the epsilon greedy policy strategy.
+            :param tau: Float value for temperature parameter to use in the softmax
+            policy strategy. tau -> 0 = greedy, tau -> infinity = random.
+            :param gamma: Float discounting factor for rewards in (0,1].
+            :param alpha: Float step size parameter for TD step. Typically in (0,1].
+            If no value is provided a step that is proportional to the number of visits
+            to a state and an action will be chosen.
+            :param ref: Float reference point for risk value function.
+            :param c_minus: Float scaling parameter for losses of prospect and
+            logarithmic value functions.
+            :param c_plus: Float scaling parameter for gains of prospect and
+            logarithmic value functions.
+            :param rho_minus: Float risk parameter for losses of prospect and
+            logarithmic value functions. Value in (0, 1) leads to risk seeking 
+            behavior in losses, value equal to 1 leads to risk neutral behavior 
+            in losses, value greater than 1 leads to risk adverse behavior in losses.
+            :param rho_plus: Float risk parameter for gains of prospect and
+            logarithmic value functions. Value in (0, 1) leads to risk adverse 
+            behavior in gains, value equal to 1 leads to risk neutral behavior 
+            in gains, value greater than 1 leads to risk seeking behavior in gains.
+            :param lambda: Float risk parameter for exponential value function.
+            Value greater than 0 leads to risk adverse behavior and value less 
+            than 0 leads to risk seeking behavior.
+            :param num_episodes: Integer number of episodes to run algorithm.
+            """
+
+            self.epsilon = epsilon
+            self.tau = float(tau)
+            self.policy_strategy = policy_strategy
+            self.util_choice = util_choice
+            self.c_minus = c_minus
+            self.c_plus = c_plus
+            self.rho_minus = rho_minus
+            self.rho_plus = rho_plus
+            self.lamb = lamb
+
+            self.mdp.q = np.zeros((self.mdp.n, self.mdp.m))
+            self.visited_states = np.zeros((self.mdp.n, self.mdp.m))
+
+            if alpha is None:
+                smart_step = True
+            else:
+                smart_step = False
+
+            if not self.mdp.terminal_states:
+                print('Need to add terminal states: Exiting')
+                return
+
+            for episode in xrange(num_episodes):
+
+                s = np.random.choice(self.mdp.states)
+
+                while s not in self.mdp.terminal_states:
+                    a = self.choose_action(s)
+                    s_new, reward = self.mdp.sample_transition(s, a)
+
+                    self.visited_states[s, a] += 1.
+
+                    if smart_step:
+                        alpha = 1/self.visited_states[s, a]
+
+                    self.mdp.q[s, a] = self.mdp.q[s, a] + alpha*(value_func(reward
+                                                                 + gamma*self.mdp.q[s_new].max()
+                                                                 - self.mdp.q[s, a]) - self.ref)
+
+                    s = s_new
+
+            self.mdp.v = self.mdp.q.max(axis=1)
+            self.mdp.policy = random_argmax(self.mdp.q)
+            self.get_named_policy()
+
+
+    def eu_q_learning(self, util_choice='prospect', policy_strategy='softmax', 
+                      epsilon=.2, tau=100, gamma=1, alpha=None, ref=0, 
+                      c_minus=1, c_plus=1, rho_minus=1, rho_plus=1, lamb=1, 
+                      num_episodes=5000):
+        """Finding the q function using expected utility algorithm mapping 
+        rewards through value function.
+        
+        :param util_choice: String indicting value function to map TD with.
+        :param policy_strategy: String indicating policy strategy to choose actions with.
+        :param epsilon: Float epsilon value in (0, 1) indicating probability of 
+        taking random action with the epsilon greedy policy strategy.
+        :param tau: Float value for temperature parameter to use in the softmax
+        policy strategy. tau -> 0 = greedy, tau -> infinity = random.
+        :param gamma: Float discounting factor for rewards in (0,1].
+        :param alpha: Float step size parameter for TD step. Typically in (0,1].
+        If no value is provided a step that is proportional to the number of visits
+        to a state and an action will be chosen.
+        :param ref: Float reference point for risk value function.
+        :param c_minus: Float scaling parameter for losses of prospect and
+        logarithmic value functions.
+        :param c_plus: Float scaling parameter for gains of prospect and
+        logarithmic value functions.
+        :param rho_minus: Float risk parameter for losses of prospect and
+        logarithmic value functions. Value in (0, 1) leads to risk seeking 
+        behavior in losses, value equal to 1 leads to risk neutral behavior 
+        in losses, value greater than 1 leads to risk adverse behavior in losses.
+        :param rho_plus: Float risk parameter for gains of prospect and
+        logarithmic value functions. Value in (0, 1) leads to risk adverse 
+        behavior in gains, value equal to 1 leads to risk neutral behavior 
+        in gains, value greater than 1 leads to risk seeking behavior in gains.
+        :param lambda: Float risk parameter for exponential value function.
+        Value greater than 0 leads to risk adverse behavior and value less 
+        than 0 leads to risk seeking behavior.
+        :param num_episodes: Integer number of episodes to run algorithm.
+        """
+
+        self.epsilon = epsilon
+        self.tau = float(tau)
+        self.policy_strategy = policy_strategy
+        self.util_choice = util_choice
+        self.c_minus = c_minus
+        self.c_plus = c_plus
+        self.rho_minus = rho_minus
+        self.rho_plus = rho_plus
+        self.lamb = lamb
+
+        self.mdp.q = np.zeros((self.mdp.n, self.mdp.m))
+        self.visited_states = np.zeros((self.mdp.n, self.mdp.m))
+
+        if alpha is None:
+            smart_step = True
+        else:
+            smart_step = False
+
+        if not self.mdp.terminal_states:
+            print('Need to add terminal states: Exiting')
+            return
+
+        for episode in xrange(num_episodes):
+
+            s = np.random.choice(self.mdp.states)
+
+            while s not in self.mdp.terminal_states:
+                a = self.choose_action(s)
+                s_new, reward = self.mdp.sample_transition(s, a)
+
+                self.visited_states[s, a] += 1.
+
+                if smart_step:
+                    alpha = 1/self.visited_states[s, a]
+
+                self.mdp.q[s, a] = self.mdp.q[s, a] + alpha*(self.value_func(reward)
+                                                             + gamma*self.mdp.q[s_new].max()
+                                                             - self.mdp.q[s, a])
 
                 s = s_new
 
@@ -852,7 +1062,14 @@ class grid_display(object):
 
 
 def random_argmax(arr):
-    """Helper functio to get the argmax of an array breaking ties randomly."""
+    """Helper function to get the argmax of an array breaking ties randomly.
+    
+    :param arr: 1D or 1D numpy array to find the argmax for.
+
+    :return choice or argmax_array: Choice is integer index of array with 
+    the max value, argmax_array is array of integer index of max value in each 
+    row of the original array.
+    """
 
     if len(arr.shape) == 1:
         choice = np.random.choice(np.flatnonzero(arr == arr.max()))
@@ -865,4 +1082,10 @@ def random_argmax(arr):
             choice = np.random.choice(np.flatnonzero(arr[i] == arr[i].max()))
             argmax_array[i] = choice
 
-        return argmax_array.astype(int)
+        argmax_array = argmax_array.astype(int)
+
+        return argmax_array
+
+
+
+def 
