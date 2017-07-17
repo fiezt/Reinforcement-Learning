@@ -412,6 +412,24 @@ class RL(object):
         self.mdp.pi[np.arange(self.mdp.pi.shape[0]), self.mdp.policy] = 1. 
 
 
+    def get_learned_model(self):
+        """Get the learned probability and reward distributions from sampled transitions."""
+
+        P = self.visited_states.copy()
+        R = np.zeros((self.mdp.n, self.mdp.m, self.mdp.n))
+
+        for s in self.mdp.states:
+            for a in self.mdp.actions:
+                with np.errstate(divide='ignore', invalid='ignore'):
+                    P[s, a] = self.visited_states[s, a]/self.visited_states[s, a].sum()
+                    R[s, a] = np.divide(self.experienced_rewards[s, a], self.visited_states[s, a])
+
+        P = np.nan_to_num(P)
+        R = np.nan_to_num(R)
+
+        return P, R
+
+
     def one_step_temporal_difference(self, policy=None, gamma=1, alpha=None, num_episodes=5000):
         """Finding the value function for a policy using temporal difference.
 
@@ -424,7 +442,8 @@ class RL(object):
         """
 
         self.mdp.v = np.zeros(self.mdp.n)
-        self.visited_states = np.zeros((self.mdp.n, self.mdp.m))
+        self.visited_states = np.zeros((self.mdp.n, self.mdp.m, self.mdp.n))
+        self.experienced_rewards = np.zeros((self.mdp.n, self.mdp.m, self.mdp.n))
         self.v_error = []
 
         if policy is None:
@@ -449,10 +468,11 @@ class RL(object):
                 a = self.mdp.policy[s]
                 s_new, reward = self.mdp.sample_transition(s, a)
 
-                self.visited_states[s, a] += 1.
+                self.visited_states[s, a, s_new] += 1.
+                self.experienced_rewards[s, a, s_new] += reward
 
                 if smart_step:
-                    alpha = 1/self.visited_states[s, a]
+                    alpha = 1/self.visited_states[s, a, :].sum()
 
                 self.mdp.v[s] += alpha*(reward + gamma*self.mdp.v[s_new] - self.mdp.v[s])
 
@@ -461,6 +481,7 @@ class RL(object):
             if episode % 100 == 0:
                 self.v_error.append(self.test_optimal_v(gamma).max())
 
+        self.P, self.R = self.get_learned_model()
 
 
     def choose_action(self, s):
@@ -664,8 +685,8 @@ class RL(object):
         self.policy_strategy = policy_strategy
 
         self.mdp.q = np.zeros((self.mdp.n, self.mdp.m))
-        self.visited_states = np.zeros((self.mdp.n, self.mdp.m))
-        self.q_error = []
+        self.visited_states = np.zeros((self.mdp.n, self.mdp.m, self.mdp.n))
+        self.experienced_rewards = np.zeros((self.mdp.n, self.mdp.m, self.mdp.n))
 
         if alpha is None:
             smart_step = True
@@ -685,10 +706,11 @@ class RL(object):
                 s_new, reward = self.mdp.sample_transition(s, a)
                 a_new = self.choose_action(s_new)
 
-                self.visited_states[s, a] += 1.
+                self.visited_states[s, a, s_new] += 1.
+                self.experienced_rewards[s, a, s_new] += reward
 
                 if smart_step:
-                    alpha = 1/self.visited_states[s, a]
+                    alpha = 1/self.visited_states[s, a, :].sum()
                 
                 self.mdp.q[s, a] += alpha*(reward + gamma*self.mdp.q[s_new, a_new] 
                                            - self.mdp.q[s, a])
@@ -696,9 +718,7 @@ class RL(object):
                 s = s_new
                 a = a_new
 
-            if episode % 100 == 0:
-                self.q_error.append(self.test_optimal_q(gamma).max())
-
+        self.P, self.R = self.get_learned_model()
         self.mdp.v = self.mdp.q.max(axis=1)
         self.mdp.policy = random_argmax(self.mdp.q)
         self.get_named_policy()
@@ -725,7 +745,8 @@ class RL(object):
         self.policy_strategy = policy_strategy
 
         self.mdp.q = np.zeros((self.mdp.n, self.mdp.m))
-        self.visited_states = np.zeros((self.mdp.n, self.mdp.m))
+        self.visited_states = np.zeros((self.mdp.n, self.mdp.m, self.mdp.n))
+        self.experienced_rewards = np.zeros((self.mdp.n, self.mdp.m, self.mdp.n))
         self.q_error = []
 
         if alpha is None:
@@ -745,10 +766,11 @@ class RL(object):
                 a = self.choose_action(s)
                 s_new, reward = self.mdp.sample_transition(s, a)
 
-                self.visited_states[s, a] += 1.
+                self.visited_states[s, a, s_new] += 1.
+                self.experienced_rewards[s, a, s_new] += reward
 
                 if smart_step:
-                    alpha = 1/self.visited_states[s, a]
+                    alpha = 1/self.visited_states[s, a, :].sum()
 
                 self.mdp.q[s, a] += alpha*(reward + gamma*self.mdp.q[s_new].max()
                                            - self.mdp.q[s, a])
@@ -758,6 +780,7 @@ class RL(object):
             if episode % 100 == 0:
                 self.q_error.append(self.test_optimal_q(gamma).max())
 
+        self.P, self.R = self.get_learned_model()
         self.mdp.v = self.mdp.q.max(axis=1)
         self.mdp.policy = random_argmax(self.mdp.q)
         self.get_named_policy()
@@ -811,6 +834,8 @@ class RL(object):
             self.lamb = lamb
 
             self.mdp.q = np.zeros((self.mdp.n, self.mdp.m))
+            self.visited_states = np.zeros((self.mdp.n, self.mdp.m, self.mdp.n))
+            self.experienced_rewards = np.zeros((self.mdp.n, self.mdp.m, self.mdp.n))
             self.q_error = []
 
             if alpha is None:
@@ -825,16 +850,16 @@ class RL(object):
             for episode in xrange(num_episodes):
 
                 s = np.random.choice(self.mdp.states)
-                self.visited_states = np.zeros((self.mdp.n, self.mdp.m))
 
                 while s not in self.mdp.terminal_states:
                     a = self.choose_action(s)
                     s_new, reward = self.mdp.sample_transition(s, a)
 
-                    self.visited_states[s, a] += 1.
+                    self.visited_states[s, a, s_new] += 1.
+                    self.experienced_rewards[s, a, s_new] += reward
 
                     if smart_step:
-                        alpha = 1/self.visited_states[s, a]
+                        alpha = 1/self.visited_states[s, a, :].sum()
 
                     self.mdp.q[s, a] += alpha*(self.value_func(reward + gamma*self.mdp.q[s_new].max()
                                                                - self.mdp.q[s, a]) - self.ref)
@@ -844,6 +869,7 @@ class RL(object):
                 if episode % 100 == 0:
                     self.q_error.append(self.test_optimal_q(gamma).max())
 
+            self.P, self.R = self.get_learned_model()
             self.mdp.v = self.mdp.q.max(axis=1)
             self.mdp.policy = random_argmax(self.mdp.q)
             self.get_named_policy()
@@ -897,7 +923,8 @@ class RL(object):
         self.lamb = lamb
 
         self.mdp.q = np.zeros((self.mdp.n, self.mdp.m))
-        self.visited_states = np.zeros((self.mdp.n, self.mdp.m))
+        self.visited_states = np.zeros((self.mdp.n, self.mdp.m, self.mdp.n))
+        self.experienced_rewards = np.zeros((self.mdp.n, self.mdp.m, self.mdp.n))
         self.q_error = []
 
         if alpha is None:
@@ -917,10 +944,11 @@ class RL(object):
                 a = self.choose_action(s)
                 s_new, reward = self.mdp.sample_transition(s, a)
 
-                self.visited_states[s, a] += 1.
+                self.visited_states[s, a, s_new] += 1.
+                self.experienced_rewards[s, a, s_new] += reward
 
                 if smart_step:
-                    alpha = 1/self.visited_states[s, a]
+                    alpha = 1/self.visited_states[s, a, :].sum()
 
                 self.mdp.q[s, a] += alpha*(self.value_func(reward) + gamma*self.mdp.q[s_new].max()
                                            - self.mdp.q[s, a])
@@ -929,7 +957,8 @@ class RL(object):
 
             if episode % 100 == 0:
                 self.q_error.append(self.test_optimal_q(gamma).max())
-
+        
+        self.P, self.R = self.get_learned_model()
         self.mdp.v = self.mdp.q.max(axis=1)
         self.mdp.policy = random_argmax(self.mdp.q)
         self.get_named_policy()
