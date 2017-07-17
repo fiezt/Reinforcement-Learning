@@ -74,12 +74,11 @@ class grid_world_mdp(object):
             self.terminal_states = []
         else:
             self.terminal_states = terminal_states
-        
+                
         self.create_prob_dist(prob_noise, prob_func)
-        
-        self.create_rewards(reward_noise, reward_func)
-        
         self.check_valid_dist()
+
+        self.create_rewards(reward_noise, reward_func)
         
     
     def create_prob_dist(self, noise=0.0, prob_func=None):
@@ -211,8 +210,8 @@ class grid_world_mdp(object):
     def check_valid_dist(self):
         """Checking the probability distribution sums to 1 for each action."""
 
-        for state in xrange(self.n):
-            for action in xrange(self.m):
+        for state in self.states:
+            for action in self.actions:
                 assert abs(sum(self.P[state, action, :]) - 1) < 1e-3, 'Transitions do not sum to 1'
 
 
@@ -245,9 +244,9 @@ class RL(object):
                 v_temp = self.mdp.v[s].copy()       
                 
                 # Bellman equation to back up.
-                self.mdp.v[s] = sum(self.mdp.pi[s, a] * sum(self.mdp.P[s, a, s_new] 
-                                    * (self.mdp.R[s, a, s_new] + gamma*self.mdp.v[s_new]) 
-                                    for s_new in self.mdp.states) for a in self.mdp.actions)
+                self.mdp.v[s] = sum(self.mdp.pi[s, a] * sum(self.mdp.P[s, a, :] 
+                                    * (self.mdp.R[s, a, :] + gamma*self.mdp.v)) 
+                                    for a in self.mdp.actions)
 
                 delta = max(delta, abs(v_temp - self.mdp.v[s]))
 
@@ -266,8 +265,7 @@ class RL(object):
 
         for s in self.mdp.states:
             for a in self.mdp.actions:
-                self.mdp.action_vals[s, a] = sum(self.mdp.P[s, a, s_new] * self.mdp.v[s_new] 
-                                                 for s_new in self.mdp.states)
+                self.mdp.action_vals[s, a] = sum(self.mdp.P[s, a, :] * self.mdp.v)
                         
         self.mdp.policy = random_argmax(self.mdp.action_vals)
             
@@ -303,9 +301,7 @@ class RL(object):
                     v_temp = self.mdp.v[s].copy()       
                     a = self.mdp.policy[s]
 
-                    self.mdp.v[s] = sum(self.mdp.P[s, a, s_new] 
-                                        * (self.mdp.R[s, a, s_new] + gamma*self.mdp.v[s_new]) 
-                                        for s_new in self.mdp.states)
+                    self.mdp.v[s] = sum(self.mdp.P[s, a, :] * (self.mdp.R[s, a, :] + gamma*self.mdp.v)) 
 
                     delta = max(delta, abs(v_temp - self.mdp.v[s]))
 
@@ -318,9 +314,8 @@ class RL(object):
             for s in self.mdp.states:
                 old_policy = self.mdp.policy[s].copy()
 
-                self.mdp.action_vals[s] = [sum(self.mdp.P[s, a, s_new] 
-                                               * (self.mdp.R[s, a, s_new] + gamma*self.mdp.v[s_new]) 
-                                               for s_new in self.mdp.states) for a in self.mdp.actions]
+                self.mdp.action_vals[s] = [sum(self.mdp.P[s, a, :] * (self.mdp.R[s, a, :] + gamma*self.mdp.v)) 
+                                           for a in self.mdp.actions]
 
                 self.mdp.policy[s] = random_argmax(self.mdp.action_vals[s])
 
@@ -358,9 +353,8 @@ class RL(object):
             for s in self.mdp.states:            
                 v_temp = self.mdp.v[s].copy()       
                 
-                self.mdp.v[s] = max([sum(self.mdp.P[s, a, s_new] 
-                                     * (self.mdp.R[s, a, s_new] + gamma*self.mdp.v[s_new]) 
-                                     for s_new in self.mdp.states) for a in self.mdp.actions])
+                self.mdp.v[s] = max([sum(self.mdp.P[s, a, :] * (self.mdp.R[s, a, :] + gamma*self.mdp.v)) 
+                                     for a in self.mdp.actions])
 
                 delta = max(delta, abs(v_temp - self.mdp.v[s]))
 
@@ -369,9 +363,8 @@ class RL(object):
 
         # Finding the deterministic policy for the value function.
         for s in self.mdp.states:
-            self.mdp.action_vals[s] = [sum(self.mdp.P[s, a, s_new] 
-                                           * (self.mdp.R[s, a, s_new] + gamma*self.mdp.v[s_new]) 
-                                           for s_new in self.mdp.states) for a in self.mdp.actions]
+            self.mdp.action_vals[s] = [sum(self.mdp.P[s, a, :] * (self.mdp.R[s, a, :] + gamma*self.mdp.v)) 
+                                       for a in self.mdp.actions]
 
         self.mdp.policy = random_argmax(self.mdp.action_vals)
         self.get_named_policy()
@@ -403,10 +396,7 @@ class RL(object):
 
                 q_temp = self.mdp.q[s, a].copy()
 
-                self.mdp.q[s, a] = sum(self.mdp.P[s, a, s_new] 
-                                       * (self.mdp.R[s, a, s_new] 
-                                          + gamma*self.mdp.q[s_new, :].max()) 
-                                       for s_new in self.mdp.states)
+                self.mdp.q[s, a] = sum(self.mdp.P[s, a, :] * (self.mdp.R[s, a,:] + gamma*self.mdp.q.max(axis=1)))
 
                 delta = max(delta, abs(self.mdp.q[s, a] - q_temp))
 
@@ -435,6 +425,7 @@ class RL(object):
 
         self.mdp.v = np.zeros(self.mdp.n)
         self.visited_states = np.zeros((self.mdp.n, self.mdp.m))
+        self.v_error = []
 
         if policy is None:
             pass
@@ -463,10 +454,13 @@ class RL(object):
                 if smart_step:
                     alpha = 1/self.visited_states[s, a]
 
-                self.mdp.v[s] = self.mdp.v[s] + alpha*(reward + gamma*self.mdp.v[s_new] 
-                                                       - self.mdp.v[s])
+                self.mdp.v[s] += alpha*(reward + gamma*self.mdp.v[s_new] - self.mdp.v[s])
 
                 s = s_new
+
+            if episode % 100 == 0:
+                self.v_error.append(self.test_optimal_v(gamma).max())
+
 
 
     def choose_action(self, s):
@@ -539,11 +533,11 @@ class RL(object):
         """Using a chosen value function to map the given value to that value function."""
 
         if self.util_choice == 'prospect':
-            u = self.prospect_utility(x)
+            u = self.prospect_value(x)
         elif self.util_choice == 'entropic':
-            u = self.entropic_utility(x)
+            u = self.entropic_value(x)
         elif self.util_choice == 'log':
-            u = self.log_utility(x)
+            u = self.log_value(x)
         else: 
             # In the case a value function is not provided the reward remains the same.
             u = x
@@ -554,10 +548,23 @@ class RL(object):
     def prospect_value(self, y):
         """Mapping a value to a prospect theory utility value."""
 
-        if y > self.ref:
-            u = self.c_plus * (y - self.ref)**self.rho_plus
-        elif y <= self.ref:
-            u = -self.c_minus * (self.ref - y)**self.rho_minus
+        if isinstance(y, float) or isinstance(y, int):
+            if y > self.ref:
+                u = self.c_plus * (y - self.ref)**self.rho_plus
+            elif y <= self.ref:
+                u = -self.c_minus * (self.ref - y)**self.rho_minus
+        elif isinstance(y, np.ndarray) or isinstance(y, list):
+
+            u = np.zeros(len(y))
+
+            for i in range(len(y)):
+                if y[i] > self.ref:
+                    u[i] = self.c_plus * (y[i] - self.ref)**self.rho_plus
+                elif y[i] <= self.ref:
+                    u[i] = -self.c_minus * (self.ref - y[i])**self.rho_minus
+        else:
+            print('Bad data type input to prospect value function')
+            u = y
 
         return u
 
@@ -572,12 +579,68 @@ class RL(object):
     def log_value(self, y):
         """Mapping a value to logarithm utility value."""
 
-        if y > self.ref:
-            u = self.c_plus * np.log(1 + self.rho_plus*(y - self.ref))
-        elif y <= self.ref:
-            u = -self.c_minus * np.log(1 + self.rho_minus*(self.ref - y))
+        if isinstance(y, float) or isinstance(y, int):
+            if y > self.ref:
+                u = self.c_plus * np.log(1 + self.rho_plus*(y - self.ref))
+            elif y <= self.ref:
+                u = -self.c_minus * np.log(1 + self.rho_minus*(self.ref - y))
+        elif isinstance(y, np.ndarray) or isinstance(y, list):
+            
+            u = np.zeros(len(y))
+
+            for i in range(len(y)):
+                if y[i] > self.ref:
+                    u[i] = self.c_plus * np.log(1 + self.rho_plus*(y[i] - self.ref))
+                elif y[i] <= self.ref:
+                    u[i] = -self.c_minus * np.log(1 + self.rho_minus*(self.ref - y[i]))
+        else:
+            print('Bad data type input to prospect value function')
+            u = y
 
         return u
+
+
+    def test_optimal_q(self, gamma):
+        """Testing if the q function is optimal."""
+
+        if not hasattr(self, 'util_choice'):
+            self.util_choice = None
+
+        error = np.zeros((self.mdp.n, self.mdp.m))
+
+        for s, a in itertools.product(self.mdp.states, self.mdp.actions):
+            
+            if s in self.mdp.terminal_states:
+                continue
+                
+            error[s,a] = sum(self.mdp.P[s, a, :] * self.value_func(self.mdp.R[s, a, :] 
+                                                                    + gamma*self.mdp.q.max(axis=1) 
+                                                                    - self.mdp.q[s,a]))
+        error = abs(error)
+
+        return error
+
+
+    def test_optimal_v(self, gamma):
+        """Testing if the value function is optimal."""
+
+        if not hasattr(self, 'util_choice'):
+            self.util_choice = None
+
+        error = np.zeros(self.mdp.n)
+
+        for s in self.mdp.states:
+            
+            if s in self.mdp.terminal_states:
+                continue
+                
+            error[s] = max([sum(self.mdp.P[s, a, :] * 
+                                self.value_func(self.mdp.R[s, a, :] + gamma*self.mdp.v - self.mdp.v[s])) 
+                                for a in self.mdp.actions])
+
+        error = abs(error)
+
+        return error
 
 
     def sarsa(self, policy_strategy='softmax', epsilon=.2, tau=.1, gamma=1, 
@@ -602,6 +665,7 @@ class RL(object):
 
         self.mdp.q = np.zeros((self.mdp.n, self.mdp.m))
         self.visited_states = np.zeros((self.mdp.n, self.mdp.m))
+        self.q_error = []
 
         if alpha is None:
             smart_step = True
@@ -626,12 +690,14 @@ class RL(object):
                 if smart_step:
                     alpha = 1/self.visited_states[s, a]
                 
-                self.mdp.q[s, a] = self.mdp.q[s, a] + alpha*(reward 
-                                                             + gamma*self.mdp.q[s_new, a_new] 
-                                                             - self.mdp.q[s, a])
+                self.mdp.q[s, a] += alpha*(reward + gamma*self.mdp.q[s_new, a_new] 
+                                           - self.mdp.q[s, a])
 
                 s = s_new
                 a = a_new
+
+            if episode % 100 == 0:
+                self.q_error.append(self.test_optimal_q(gamma).max())
 
         self.mdp.v = self.mdp.q.max(axis=1)
         self.mdp.policy = random_argmax(self.mdp.q)
@@ -660,6 +726,7 @@ class RL(object):
 
         self.mdp.q = np.zeros((self.mdp.n, self.mdp.m))
         self.visited_states = np.zeros((self.mdp.n, self.mdp.m))
+        self.q_error = []
 
         if alpha is None:
             smart_step = True
@@ -683,11 +750,13 @@ class RL(object):
                 if smart_step:
                     alpha = 1/self.visited_states[s, a]
 
-                self.mdp.q[s, a] = self.mdp.q[s, a] + alpha*(reward
-                                                             + gamma*self.mdp.q[s_new].max()
-                                                             - self.mdp.q[s, a])
+                self.mdp.q[s, a] += alpha*(reward + gamma*self.mdp.q[s_new].max()
+                                           - self.mdp.q[s, a])
 
                 s = s_new
+
+            if episode % 100 == 0:
+                self.q_error.append(self.test_optimal_q(gamma).max())
 
         self.mdp.v = self.mdp.q.max(axis=1)
         self.mdp.policy = random_argmax(self.mdp.q)
@@ -734,6 +803,7 @@ class RL(object):
             self.tau = float(tau)
             self.policy_strategy = policy_strategy
             self.util_choice = util_choice
+            self.ref = ref
             self.c_minus = c_minus
             self.c_plus = c_plus
             self.rho_minus = rho_minus
@@ -741,7 +811,7 @@ class RL(object):
             self.lamb = lamb
 
             self.mdp.q = np.zeros((self.mdp.n, self.mdp.m))
-            self.visited_states = np.zeros((self.mdp.n, self.mdp.m))
+            self.q_error = []
 
             if alpha is None:
                 smart_step = True
@@ -755,6 +825,7 @@ class RL(object):
             for episode in xrange(num_episodes):
 
                 s = np.random.choice(self.mdp.states)
+                self.visited_states = np.zeros((self.mdp.n, self.mdp.m))
 
                 while s not in self.mdp.terminal_states:
                     a = self.choose_action(s)
@@ -765,11 +836,13 @@ class RL(object):
                     if smart_step:
                         alpha = 1/self.visited_states[s, a]
 
-                    self.mdp.q[s, a] = self.mdp.q[s, a] + alpha*(value_func(reward
-                                                                 + gamma*self.mdp.q[s_new].max()
-                                                                 - self.mdp.q[s, a]) - self.ref)
+                    self.mdp.q[s, a] += alpha*(self.value_func(reward + gamma*self.mdp.q[s_new].max()
+                                                               - self.mdp.q[s, a]) - self.ref)
 
                     s = s_new
+
+                if episode % 100 == 0:
+                    self.q_error.append(self.test_optimal_q(gamma).max())
 
             self.mdp.v = self.mdp.q.max(axis=1)
             self.mdp.policy = random_argmax(self.mdp.q)
@@ -816,6 +889,7 @@ class RL(object):
         self.tau = float(tau)
         self.policy_strategy = policy_strategy
         self.util_choice = util_choice
+        self.ref = ref
         self.c_minus = c_minus
         self.c_plus = c_plus
         self.rho_minus = rho_minus
@@ -824,6 +898,7 @@ class RL(object):
 
         self.mdp.q = np.zeros((self.mdp.n, self.mdp.m))
         self.visited_states = np.zeros((self.mdp.n, self.mdp.m))
+        self.q_error = []
 
         if alpha is None:
             smart_step = True
@@ -847,11 +922,13 @@ class RL(object):
                 if smart_step:
                     alpha = 1/self.visited_states[s, a]
 
-                self.mdp.q[s, a] = self.mdp.q[s, a] + alpha*(self.value_func(reward)
-                                                             + gamma*self.mdp.q[s_new].max()
-                                                             - self.mdp.q[s, a])
+                self.mdp.q[s, a] += alpha*(self.value_func(reward) + gamma*self.mdp.q[s_new].max()
+                                           - self.mdp.q[s, a])
 
                 s = s_new
+
+            if episode % 100 == 0:
+                self.q_error.append(self.test_optimal_q(gamma).max())
 
         self.mdp.v = self.mdp.q.max(axis=1)
         self.mdp.policy = random_argmax(self.mdp.q)
