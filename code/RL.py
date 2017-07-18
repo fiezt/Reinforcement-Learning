@@ -590,11 +590,60 @@ class RL(object):
         return u
 
 
+    def dprospect_dc(self, y):
+        """Compute the derivative of the prospect value function with respect to c.""" 
+
+        if y > self.ref 
+            du_dc = (y - self.ref)**self.rho_plus
+        elif y <= self.ref:
+            du_dc = -1.*(self.ref - y)**self.rho_minus
+
+        return du_dc
+
+
+    def dprospect_drho(self, y):
+        """Compute the derivative of the prospect value function with respect to rho."""
+
+        if y > self.ref 
+            du_drho = self.c_plus * np.log(y - self.ref) * (y - self.ref)**self.rho_plus
+        elif y <= self.ref:
+            du_drho = -self.c_minus * np.log(self.ref - y) * (self.ref - y)**self.rho_minus
+
+        return du_drho
+
+
+    def dprospect_dy(self, y):
+        """Compute the derivative of the prospect value function with respect to y."""
+
+        if y > self.ref 
+            du_dy = self.c_plus * self.rho_plus * (y - self.ref)**(self.rho_plus - 1.)
+        elif y <= self.ref:
+            du_dy = -self.c_minus * self.rho_minus * (self.ref - y)**(self.rho_minus - 1.)
+
+        return du_dy
+
+
     def entropic_value(self, y):
         """Mapping a value to a entropic utility value."""
 
-        u = np.exp(self.lamb*y)
+        u = (np.exp(self.lamb*y) - 1)/self.lamb 
         return u
+
+
+    def dentropic_dlamb(self, y):
+        """Computing the derivative of the entropic value function with respect to lambda."""
+
+        de_dl = (-1./self.lamb**2) * (np.exp(self.lamb*y) - 1) + (y * np.exp(self.lamb*y))/(self.lamb)
+
+        return de_dl
+
+
+    def dentropic_dy(self, y):
+        """Computing the derivative of the entropic value function with respect to y."""
+
+        de_dy = np.exp(self.lamb*y)
+
+        return de_dy
 
 
     def log_value(self, y):
@@ -602,23 +651,56 @@ class RL(object):
 
         if isinstance(y, float) or isinstance(y, int):
             if y > self.ref:
-                u = self.c_plus * np.log(1 + self.rho_plus*(y - self.ref))
+                u = self.c_plus * np.log(1. + self.rho_plus*(y - self.ref))
             elif y <= self.ref:
-                u = -self.c_minus * np.log(1 + self.rho_minus*(self.ref - y))
+                u = -self.c_minus * np.log(1. + self.rho_minus*(self.ref - y))
         elif isinstance(y, np.ndarray) or isinstance(y, list):
             
             u = np.zeros(len(y))
 
             for i in range(len(y)):
                 if y[i] > self.ref:
-                    u[i] = self.c_plus * np.log(1 + self.rho_plus*(y[i] - self.ref))
+                    u[i] = self.c_plus * np.log(1. + self.rho_plus*(y[i] - self.ref))
                 elif y[i] <= self.ref:
-                    u[i] = -self.c_minus * np.log(1 + self.rho_minus*(self.ref - y[i]))
+                    u[i] = -self.c_minus * np.log(1. + self.rho_minus*(self.ref - y[i]))
         else:
             print('Bad data type input to prospect value function')
             u = y
 
         return u
+
+
+    def dlog_dc(self, y):
+        """Compute the derivative of the log value function with respect to c."""
+
+        if y > self.ref:
+            dl_dc = np.log(1. + self.rho_plus*(y - self.ref))
+        elif y <= self.ref:
+            dl_dc = -1.*np.log(1. + self.rho_minus*(self.ref - y))
+
+        return dl_dc
+
+
+    def dlog_drho(self, y):
+        """Compute the derivative of the log value function with respect to rho."""
+
+        if y > self.ref:
+            dl_drho = ((self.c_plus * (y - self.ref))/(1. + self.rho_plus*(y - self.ref))) 
+        elif y <= self.ref:
+            dl_drho = ((-self.c_minus * (self.ref - y))/(1. + self.rho_minus*(self.ref - y))) 
+
+        return dl_drho
+
+
+    def dlog_dy(self, y):
+        """Compute the derivative of the log value function with respect to y."""
+
+        if y > self.ref:
+            dl_dy = ((self.c_plus * self.rho_plus)/(1. + self.rho_plus*(y - self.ref))) 
+        elif y <= self.ref:
+            dl_dy = ((self.c_minus * self.rho_minus)/(1. + self.rho_minus*(self.ref - y))) 
+
+        return dl_dy
 
 
     def test_optimal_q(self, gamma):
