@@ -41,7 +41,140 @@ def random_argmax(arr):
         return argmax_array
 
 
-class ModelBasedRL(object):
+class RLBase(object):
+    def __init__(self):
+        pass
+
+
+    def simulate_policy(self, env, num_episodes=1000, render_final=True):
+        """Interact in the environment using the learned policy.
+
+        This function is used to interact in the environment and get the average
+        reward over of number of episodes and show the last episode if specified.
+
+        :param env: environment class which the algorithm will attempt to learn.
+        :param num_episodes: Integer number of episodes to run in environment for.
+        :param render_final: Bool indicator of whether to show the last episode.
+        """
+
+        # List tracking rewards of learning algorithm over episodes.
+        self.episode_rewards = []
+
+        total_reward = 0
+
+        for episode in xrange(num_episodes):
+
+            done = False
+            episode_reward = 0
+            s = env.reset()
+
+            while done != True:
+                # Show the environment to the screen.
+                if episode == num_episodes - 1 and render_final:
+                    env.render()
+
+                a = self.policy[s]
+                s, reward, done, info = env.step(a) 
+
+                episode_reward += reward
+
+            self.episode_rewards.append(episode_reward)
+            total_reward += episode_reward
+
+        avg_reward = total_reward/float(num_episodes)
+
+        print('\n\nAverage reward over %d episodes is %f\n\n' % (num_episodes, avg_reward))
+
+
+    def plot_epsiode_returns(self, title='Episode Returns', fig_path=None, 
+                             fig_name=None, save_fig=True):
+        """Plotting the reward returns over episodes.
+        
+        :param title: String title for figure.
+        :param fig_path: File path to save figure to.
+        :param fig_name: File name to save figure as.
+        :param save_fig: Bool indicating whether to save the figure.
+        """
+
+        sns.set()
+        sns.set_style("whitegrid")
+
+        plt.figure()
+
+        plt.plot(self.episode_rewards, color='red', lw=2)
+
+        plt.title(title, fontsize=22)
+        plt.xlabel('Episode Number', fontsize=20)
+        plt.ylabel('Episode Return', fontsize=20)
+
+        plt.tick_params(axis='both', which='major', labelsize=18)
+        plt.tick_params(axis='both', which='minor', labelsize=18)
+        plt.xlim([0, len(self.episode_rewards)])
+
+        plt.tight_layout()
+
+        if save_fig:
+            # Default figure path.
+            if fig_path is None:
+                fig_path = os.getcwd() + '/../figs'
+
+            # Default figure name.
+            if fig_name is None:
+                title = title.translate(None, string.punctuation)
+                fig_name = '_'.join(title.split()) + '.png'
+
+            plt.savefig(os.path.join(fig_path, fig_name), bbox_inches='tight')
+
+        sns.reset_orig()
+
+        plt.show()
+
+
+    def scatter_epsiode_returns(self, title='Episode Returns', fig_path=None, 
+                                fig_name=None, save_fig=True):
+        """Scatter plotting the reward returns over episodes.
+        
+        :param title: String title for figure.
+        :param fig_path: File path to save figure to.
+        :param fig_name: File name to save figure as.
+        :param save_fig: Bool indicating whether to save the figure.
+        """
+
+        sns.set()
+        sns.set_style("whitegrid")
+
+        plt.figure()
+
+        plt.scatter(range(len(self.episode_rewards)), self.episode_rewards, color='red', lw=2)
+
+        plt.title(title, fontsize=22)
+        plt.xlabel('Episode Number', fontsize=20)
+        plt.ylabel('Episode Return', fontsize=20)
+
+        plt.tick_params(axis='both', which='major', labelsize=18)
+        plt.tick_params(axis='both', which='minor', labelsize=18)
+        plt.xlim([0, len(self.episode_rewards)])
+
+        plt.tight_layout()
+
+        if save_fig:
+            # Default figure path.
+            if fig_path is None:
+                fig_path = os.getcwd() + '/../figs'
+
+            # Default figure name.
+            if fig_name is None:
+                title = title.translate(None, string.punctuation)
+                fig_name = '_'.join(title.split()) + '.png'
+
+            plt.savefig(os.path.join(fig_path, fig_name), bbox_inches='tight')
+
+        sns.reset_orig()
+
+        plt.show()
+
+
+class ModelBasedRL(RLBase):
     def __init__(self, gamma=1, max_iter=5000, max_eval=1000):
         """
         :param gamma: Float discounting factor for rewards in (0,1].
@@ -260,7 +393,7 @@ class ModelBasedRL(object):
         self.error = abs(self.error)
 
 
-class ModelFreeRLBase(object):
+class ModelFreeRLBase(RLBase):
     def __init__(self, n, m, states, actions, gamma, alpha, alpha_decay, 
                  alpha_decay_param, epsilon, epsilon_decay, 
                  epsilon_decay_param, tau, tau_decay, tau_decay_param, 
@@ -536,94 +669,6 @@ class ModelFreeRLBase(object):
         plt.show()
 
 
-    def plot_epsiode_returns(self, title='Episode Returns', fig_path=None, 
-                             fig_name=None, save_fig=True):
-        """Plotting the reward returns over episodes.
-        
-        :param title: String title for figure.
-        :param fig_path: File path to save figure to.
-        :param fig_name: File name to save figure as.
-        :param save_fig: Bool indicating whether to save the figure.
-        """
-
-        sns.set()
-        sns.set_style("whitegrid")
-
-        plt.figure()
-
-        plt.plot(self.episode_rewards, color='red', lw=2)
-
-        plt.title(title, fontsize=22)
-        plt.xlabel('Episode Number', fontsize=20)
-        plt.ylabel('Episode Return', fontsize=20)
-
-        plt.tick_params(axis='both', which='major', labelsize=18)
-        plt.tick_params(axis='both', which='minor', labelsize=18)
-        plt.xlim([0, len(self.episode_rewards)])
-
-        plt.tight_layout()
-
-        if save_fig:
-            # Default figure path.
-            if fig_path is None:
-                fig_path = os.getcwd() + '/../figs'
-
-            # Default figure name.
-            if fig_name is None:
-                title = title.translate(None, string.punctuation)
-                fig_name = '_'.join(title.split()) + '.png'
-
-            plt.savefig(os.path.join(fig_path, fig_name), bbox_inches='tight')
-
-        sns.reset_orig()
-
-        plt.show()
-
-
-    def scatter_epsiode_returns(self, title='Episode Returns', fig_path=None, 
-                                fig_name=None, save_fig=True):
-        """Scatter plotting the reward returns over episodes.
-        
-        :param title: String title for figure.
-        :param fig_path: File path to save figure to.
-        :param fig_name: File name to save figure as.
-        :param save_fig: Bool indicating whether to save the figure.
-        """
-
-        sns.set()
-        sns.set_style("whitegrid")
-
-        plt.figure()
-
-        plt.scatter(range(len(self.episode_rewards)), self.episode_rewards, color='red', lw=2)
-
-        plt.title(title, fontsize=22)
-        plt.xlabel('Episode Number', fontsize=20)
-        plt.ylabel('Episode Return', fontsize=20)
-
-        plt.tick_params(axis='both', which='major', labelsize=18)
-        plt.tick_params(axis='both', which='minor', labelsize=18)
-        plt.xlim([0, len(self.episode_rewards)])
-
-        plt.tight_layout()
-
-        if save_fig:
-            # Default figure path.
-            if fig_path is None:
-                fig_path = os.getcwd() + '/../figs'
-
-            # Default figure name.
-            if fig_name is None:
-                title = title.translate(None, string.punctuation)
-                fig_name = '_'.join(title.split()) + '.png'
-
-            plt.savefig(os.path.join(fig_path, fig_name), bbox_inches='tight')
-
-        sns.reset_orig()
-
-        plt.show()
-
-
     def plot_epsilon_parameters(self, title='Epsilon Parameters', fig_path=None, 
                                 fig_name=None, save_fig=True):
         """Plotting the e-greedy parameter over episodes.
@@ -712,42 +757,6 @@ class ModelFreeRLBase(object):
         plt.show()
 
 
-    def simulate_model(self, env, num_episodes=1000, render_final=True):
-        """Interact in the environment using the learned policy.
-
-        This function is used to interact in the environment and get the average
-        reward over of number of episodes and show the last episode if specified.
-
-        :param env: environment class which the algorithm will attempt to learn.
-        :param num_episodes: Integer number of episodes to run in environment for.
-        :param render_final: Bool indicator of whether to show the last episode.
-        """
-
-        total_reward = 0
-
-        for episode in xrange(num_episodes):
-
-            done = False
-            episode_reward = 0
-            s = env.reset()
-
-            while done != True:
-                # Show the environment to the screen.
-                if episode == num_episodes - 1 and render_final:
-                    env.render()
-
-                a = self.policy[state]
-                s, reward, done, info = env.step(action) 
-
-                episode_reward += reward
-
-            total_reward += episode_reward
-
-        avg_reward = total_reward/float(num_episodes)
-
-        print('\n\nAverage reward over %d episodes is %f\n\n' % (num_episodes, avg_reward))
-
-
 class ModelFreeRL(ModelFreeRLBase):
     def __init__(self, n, m, states, actions, gamma=1, alpha=.618, alpha_decay=True, 
                  alpha_decay_param=.001, epsilon=.2, epsilon_decay=True, epsilon_decay_param=.01, 
@@ -758,7 +767,7 @@ class ModelFreeRL(ModelFreeRLBase):
                                           alpha_decay, alpha_decay_param,
                                           epsilon, epsilon_decay, epsilon_decay_param, 
                                           tau, tau_decay, tau_decay_param, policy_strategy, 
-                                          horizon, num_episodes):
+                                          horizon, num_episodes)
 
     
     def one_step_temporal_difference(self, env):
@@ -771,7 +780,7 @@ class ModelFreeRL(ModelFreeRLBase):
 
         self.initialize()
 
-        for self.episode in xrange(num_episodes):
+        for self.episode in xrange(self.num_episodes):
 
             done = False
             episode_reward = 0
@@ -894,7 +903,7 @@ class ModelFreeRiskRL(ModelFreeRLBase):
                                               alpha_decay, alpha_decay_param,
                                               epsilon, epsilon_decay, epsilon_decay_param, 
                                               tau, tau_decay, tau_decay_param, policy_strategy, 
-                                              horizon, num_episodes):
+                                              horizon, num_episodes)
 
 
     def risk_q_learning(self, env, agent):
@@ -1018,8 +1027,8 @@ class RiskAgent(object):
 class ProspectAgent(RiskAgent):
     def __init__(self, ref=0, c_minus=1, c_plus=1, rho_minus=1, rho_plus=1):
 
-        super(ProspectAgent, self)__init__(ref=ref, c_minus=c_minus, c_plus=c_plus, 
-                                           rho_minus=rho_minus, rho_plus=rho_plus)
+        super(ProspectAgent, self).__init__(ref=ref, c_minus=c_minus, c_plus=c_plus, 
+                                            rho_minus=rho_minus, rho_plus=rho_plus)
 
 
     def u(self, x):
@@ -1082,7 +1091,7 @@ class ProspectAgent(RiskAgent):
 class EntropicAgent(RiskAgent):
     def __init__(self, ref=0, lamb=0):
 
-        super(EntropicAgent, self)__init__(ref=ref, lamb=lamb)
+        super(EntropicAgent, self).__init__(ref=ref, lamb=lamb)
 
 
     def u(self, x):
@@ -1111,8 +1120,8 @@ class EntropicAgent(RiskAgent):
 class LogAgent(RiskAgent):
     def __init__(self, ref=0, c_minus=1, c_plus=1, rho_minus=1, rho_plus=1):
 
-        super(LogAgent, self)__init__(ref=ref, c_minus=c_minus, c_plus=c_plus, 
-                                           rho_minus=rho_minus, rho_plus=rho_plus)
+        super(LogAgent, self).__init__(ref=ref, c_minus=c_minus, c_plus=c_plus, 
+                                       rho_minus=rho_minus, rho_plus=rho_plus)
 
 
     def u(self, x):
@@ -1179,13 +1188,22 @@ class SimulatedMDP(object):
         :param env: environment class which the agent will interact with.
         :param num_episodes: Integer number of episodes to interact.
         """
-                
-        self.n = env.observation_space.n
+        
+        # OpenAI Gym case.
+        try:
+            self.n = env.observation_space.n
+        # Grid World case.
+        except:
+            self.n = env.n
         self.states = range(self.n)
         
-        self.m = env.action_space.n
+        # OpenAI Gym case.
+        try:
+            self.m = env.action_space.n
+        # Grid World case.
+        except:
+            self.m = env.m
         self.actions = range(self.m)
-        self.idx_to_action_names = {a:a for a in self.actions}
 
         self.P = np.zeros((self.n, self.m, self.n))
         self.R = np.zeros((self.n, self.m, self.n))
@@ -1213,7 +1231,12 @@ class SimulatedMDP(object):
             done = False
             
             while not done:
-                a = env.action_space.sample()
+                # OpenAI Gym case.
+                try:
+                    a = env.action_space.sample()
+                # Grid World Case.
+                except:
+                    a = env.sample()
                 s_new, reward, done, info = env.step(a)
                 
                 reward_min = min(reward_min, reward)
@@ -1289,23 +1312,23 @@ class GridWorldBase(object):
 
         if self.m == 4:
             
-            # Action of N, S, E, W.
-            self.actions_to_idx = {(-1,0): 0, (1,0): 1, (0,1): 2, (0,-1): 3}            
+            # Action of N, W, S, E.
+            self.actions_to_idx = {(-1,0): 0, (0,-1): 1, (1,0): 2, (0,1): 3}            
             self.idx_to_actions = {v:k for k,v in self.actions_to_idx.items()}   
             
-            self.action_names_to_idx = {'N':0, 'S':1, 'E':2, 'W':3}
+            self.action_names_to_idx = {'N':0, 'W':1, 'S':2, 'E':3}
             self.idx_to_action_names = {v:k for k,v in self.action_names_to_idx.items()}
 
         elif self.m == 8:
             
-            # Action of N, NE, NW, S, SE, SW, E, W 
-            self.actions_to_idx = {(-1,0): 0, (-1,1): 1, (-1,-1): 2, (1,0): 3, 
-                                    (1,1): 4, (1,-1): 5, (0,1): 6, (0,-1): 7}
+            # Action of N, W, S, E, NE, NW, SW, SE 
+            self.actions_to_idx = {(-1,0): 0, (0,-1): 1, (1,0): 2, (0,1): 3, 
+                                    (-1,1): 4, (-1,-1): 5, (1,-1): 6, (1,1): 7}
             
             self.idx_to_actions = {v:k for k,v in self.actions_to_idx.items()}
             
-            self.action_names_to_idx = {'N':0, 'NE':1, 'NW':2 , 'S':3, 'SE':4, 
-                                        'SW':5, 'E':6, 'W':7}
+            self.action_names_to_idx = {'N':0, 'W':1, 'S':2 , 'E':3, 'NE':4, 
+                                        'NW':5, 'SW':6, 'SE':7}
             self.idx_to_action_names = {v:k for k,v in self.action_names_to_idx.items()}
 
         else:
@@ -1412,9 +1435,9 @@ class GridWorldMDP(GridWorldBase):
         :param create_rewards: Bool indicating whether to create the default reward distribution.
         """  
     
-        super(GridWorldMDP, self)__init__(grid_rows=grid_rows, grid_cols=grid_cols, 
-                                          num_actions=num_actions, 
-                                          terminal_states=terminal_states):
+        super(GridWorldMDP, self).__init__(grid_rows=grid_rows, grid_cols=grid_cols, 
+                                           num_actions=num_actions, 
+                                           terminal_states=terminal_states)
 
         if create_probs:        
             self.create_prob_dist(prob_noise)
@@ -1434,13 +1457,15 @@ class GridWorldEnv(GridWorldBase):
         :param grid_cols: Integer number of cols for which to make the grid.
         :param num_actions: Integer that must be 4 or 8. These will be compass directions.
         :param terminal_states: List or None, of the terminal states as integers.
+        :param prob_noise: Float in [0,1] to use as noise in the transition function.
+        :param reward_noise: Float as standard deviation for Gaussian noise in the reward function.
         :param create_probs: Bool indicating whether to create the default probability distribution.
         :param create_rewards: Bool indicating whether to create the default reward distribution.
         """  
 
-        super(GridWorldEnv, self)__init__(grid_rows=grid_rows, grid_cols=grid_cols, 
-                                          num_actions=num_actions, 
-                                          terminal_states=terminal_states):
+        super(GridWorldEnv, self).__init__(grid_rows=grid_rows, grid_cols=grid_cols, 
+                                           num_actions=num_actions, 
+                                           terminal_states=terminal_states)
 
         self.clear_states = [s for s in self.states if s not in self.terminal_states]
 
@@ -1486,16 +1511,18 @@ class GridWorldEnv(GridWorldBase):
         """
 
         sample = np.random.multinomial(1, self.P[self.s, a]).tolist()
-        self.s = sample.index(1)
-        s_new = self.s
+        s_new = sample.index(1)
 
         if self.s in self.terminal_states:
             done = True
         else:
             done = False
 
-        reward = self.R[s, a, s_new]
+        reward = self.R[self.s, a, s_new]
         info = []
+
+        # Updating state internally.
+        self.s = s_new
 
         return s_new, reward, done, info       
 
@@ -1517,8 +1544,8 @@ class GridDisplay(object):
         self.terminal_states = [state_locs.index(state) for state in grid_object.terminal_states]
 
         # Flipping rows for plotting reasons.
-        self.policy = zip(*[iter(rl.policy)]*grid_object.m)[::-1]
-        self.policy = [item for row in self.policy for item in row]
+        self.policy = np.flipud(rl.policy.reshape((grid_object.grid_rows, grid_object.grid_cols)))
+        self.policy = self.policy.reshape((-1)).tolist()
 
         self.rl = rl
         self.grid_object = grid_object
@@ -1552,9 +1579,8 @@ class GridDisplay(object):
         count = 0
         for p, value, choice in izip(grid.get_paths(), grid.get_array(), self.policy):
             x, y = p.vertices[:-2, :].mean(0)
-  
+
             j = 0       
-            colors = {0:'red', 1:'blue', 2:'orange', 3:'white'}   
             min_v = self.values.min()
             max_v = self.values.max()
 
@@ -1563,11 +1589,14 @@ class GridDisplay(object):
             verts[-1] = [0, 0]
             codes = [mpl.path.Path.MOVETO, mpl.path.Path.LINETO, mpl.path.Path.LINETO, mpl.path.Path.CLOSEPOLY]
 
-            # W, N, E, S
-            dist_change = {0:(-.3,.0), 1:(0.,.3), 2:(.3,0), 3:(0,-.3)}
+            """
+            Mapping from vertex iteration of W, N, E, S to distance to move 
+            text from the vertex. The reference point is the bottom left hand corner at 0,0.
+            """
+            dist_change = {0:(-.3,0.), 1:(.0,.3), 2:(.3,.0), 3:(.0,-.3)}
 
-            # N, S, E, W.
-            a_change = {0: 3, 1:0, 2:2, 3:1}
+            # Mapping from vertex iteration of W, N, E, S to directions N, W, S, E.
+            a_change = {0:1, 1:0, 2:3, 3:2}
 
             for v in range(self.grid_object.m):
                 if v == len(p.vertices) - 1:
@@ -1615,7 +1644,7 @@ class GridDisplay(object):
             
         fig.set_size_inches((self.values.shape[1]*4, self.values.shape[0]*4))
 
-        if savefig:
+        if save_fig:
             # Default figure path.
             if fig_path is None:
                 fig_path = os.getcwd() + '/../figs'
@@ -1650,13 +1679,14 @@ class GridDisplay(object):
         warnings.simplefilter('ignore', MatplotlibDeprecationWarning)
         ax = grid.get_axes()
 
-        orient_dict = {0:0, 1:7*np.pi/4., 2:np.pi/4., 3:np.pi, 
-                       4:5*np.pi/4., 5:3*np.pi/4., 6:3*np.pi/2., 7:np.pi/2.}
+
+        orient_dict = {0:0, 1:np.pi/2., 2:np.pi, 3:3*np.pi/2., 
+                       4:7*np.pi/4., 5:np.pi/4., 6:3*np.pi/4., 7:5*np.pi/4.}
 
         dist = 0.42
-        arrow_loc = {0:(0, dist), 1:(dist, dist), 2:(-dist, dist),
-                     3:(0, -dist), 4:(dist, -dist), 5:(-dist, -dist),
-                     6:(dist, 0), 7:(-dist, 0)}
+        arrow_loc = {0:(0, dist), 1:(-dist, 0), 2:(0, -dist),
+                     3:(dist, 0), 4:(dist, dist), 5:(-dist, dist),
+                     6:(-dist, -dist), 7:(dist, -dist)}
 
         count = 0
 
@@ -1706,7 +1736,7 @@ class GridDisplay(object):
             
         fig.set_size_inches((self.values.shape[1]*4, self.values.shape[0]*4))
 
-        if savefig:
+        if save_fig:
             if fig_path is None:
                 fig_path = os.getcwd() + '/../figs'
 
