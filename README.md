@@ -33,6 +33,9 @@ Current list of risk-sensitive value functions:
 Current list of multi-arm bandit algorithms:
 - Greedy
 - Epsilon Greedy
+- Epsilon Greedy with Exponential Epsilon Decay (Exponential Increase in Greediness)
+- Boltzmann 
+- Boltzmann with Exponential Temperature Decay (Exponential Increase in Greediness)
 - Upper Confidence Bounds (UCB)
 
 # Visualizations, Learning Models, Testing Models, and Policy Strategies

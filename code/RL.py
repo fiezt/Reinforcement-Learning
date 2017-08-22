@@ -1286,6 +1286,332 @@ class SimulatedMDP(object):
                 assert abs(sum(self.P[s, a, :]) - 1) < 1e-3, 'Transitions do not sum to 1'
 
 
+class Bandits(object):
+    def __init__(self, num_arms, mu, sigma):
+        """Initializing bandit problem by arms and parameters for the number of arms.
+
+        :param num_arms: Number of arms to use in the bandit problem.
+        :param mu: Mean for normal distribution to create over arms.
+        :param sigma: Standard deviation for normal distribution to create over arms.
+        """
+
+        self.num_arms = num_arms
+        self.mu = mu
+        self.sigma = sigma
+
+
+    def create_arms(self):
+        """Creating the arms using a normal distribution on the arms."""
+
+        self.bandit_arms = np.random.normal(self.mu, self.sigma, self.num_arms)
+
+
+    def ucb(self):
+        """Upper confidence bound bandit algorithm."""
+
+        a = random_argmax(self.arm_averages + self.c*np.sqrt(np.log(self.i+1)/self.arm_counts))
+        return a
+
+
+    def epsilon_greedy(self):
+        """Epsilon greedy exploration-exploitation strategy.
+
+        This policy strategy selects the current best action with probability
+        of 1 - epsilon, and a random action with probability epsilon.
+        
+        :return a: Integer index of the action for the agent to take.
+        """
+
+        if self.epsilon_decay:
+            epsilon = self.epsilon * np.exp(-self.epsilon_decay_param * self.i)
+        else:
+            epsilon = self.epsilon
+
+        if not np.random.binomial(1, epsilon):
+            a = random_argmax(self.arm_averages)
+        else:
+            a = np.random.choice(range(self.num_arms))
+
+        return a
+
+
+    def softmax(self):
+        """Softmax exploration-exploitation strategy.
+
+        This policy strategy uses a boltzman distribution with a temperature 
+        parameter tau, to assign the probabilities of choosing an action based
+        off of the current sample arm averages.
+
+        :return a: Integer index of the action for the agent to take.
+        """
+
+        if self.tau_decay:
+            # Capping the minimum value of tau to prevent overflow issues.
+            tau = max(self.tau * np.exp(-self.tau_decay_param * self.i), .1)
+        else:
+            tau = self.tau
+
+        values = np.exp(self.arm_averages/tau)        
+        total = np.sum(values)
+        probs = values/total
+
+        sample = np.random.multinomial(1, probs).tolist()
+
+        # If there is overflow take the greedy action.
+        try:
+            a = sample.index(1)
+        except:
+            a = random_argmax(self.arm_averages)
+
+        return a
+
+
+    def sample_arm(self, arm_choice):
+        """Sample arm by returning random reward for the choice of arm to pull.
+
+        :param arm_choice: Index of the arm to pull.
+
+        :return value: Random reward for choosing the arm selected.
+        """
+
+        value = np.random.normal(self.bandit_arms[arm_choice], self.sigma)
+        return value
+
+
+    def choose_action(self):
+        """Choose action for a bandit algorithm using selected strategy.
+
+        :return a: Integer index of the action for the agent to take.
+        """
+
+        if self.policy_strategy == 'softmax':
+            a = self.softmax()
+        elif self.policy_strategy == 'e-greedy':
+            a = self.epsilon_greedy()
+        elif self.policy_strategy == 'greedy':
+            a = random_argmax(self.arm_averages)
+        elif self.policy_strategy == 'ucb':
+            a = self.ucb()
+        else:
+            a = np.random.choice(range(self.num_arms))
+
+        return a
+
+
+    def initialize(self, epsilon, epsilon_decay, epsilon_decay_param, tau, 
+                   tau_decay, tau_decay_param, c, policy_strategy):
+        """Initializing bandit parameters for policies.
+    
+        :param epsilon: Float value (0, 1) prob of taking random action vs. taking greedy action.
+        :param epsilon_decay: Bool indicating whether to use decay of epsilon over episodes.
+        :param epsilon_decay_param: Float param for decay given by epsilon*e^(-epsilon_decay_param * episode)
+        :param tau: Float value for temp. param in the softmax, tau -> 0 = greedy, tau -> infinity = random.
+        :param tau_decay: Bool indicating whether to use decay of tau over episodes.
+        :param tau_decay_param: Float param for decay given by tau*e^(-tau_decay_param * episode)
+        :param c: Float param for the UCB algorithm.
+        :param policy_strategy: String in {softmax, e-greedy, greedy, ucb}, exploration vs exploitation strategy.  
+        """
+
+        self.epsilon = epsilon
+        self.epsilon_decay = epsilon_decay
+        self.epsilon_decay_param = epsilon_decay_param
+        self.tau = tau
+        self.tau_decay = tau_decay
+        self.tau_decay_param = tau_decay_param
+        self.c = c
+        self.policy_strategy = policy_strategy
+
+
+    def simulate(self, horizon=1000, num_episodes=2000, epsilon=.2, 
+                 epsilon_decay=True, epsilon_decay_param=.01, tau=100, 
+                 tau_decay=True, tau_decay_param=.01, c=2, policy_strategy='ucb'):
+        """
+
+        :param horizon: Number of times to sample using the bandit algorithm.
+        :param num_episodes: Number of different randomly created bandit problems to run that will be averaged over.
+        :param epsilon: Float value (0, 1) prob of taking random action vs. taking greedy action.
+        :param epsilon_decay: Bool indicating whether to use decay of epsilon over episodes.
+        :param epsilon_decay_param: Float param for decay given by epsilon*e^(-epsilon_decay_param * episode)
+        :param tau: Float value for temp. param in the softmax, tau -> 0 = greedy, tau -> infinity = random.
+        :param tau_decay: Bool indicating whether to use decay of tau over episodes.
+        :param tau_decay_param: Float param for decay given by tau*e^(-tau_decay_param * episode)
+        :param c: Float param for the UCB algorithm.
+        :param policy_strategy: String in {softmax, e-greedy, greedy, ucb}, exploration vs exploitation strategy.  
+        """
+
+        self.initialize(epsilon, epsilon_decay, epsilon_decay_param, tau, 
+                        tau_decay, tau_decay_param, c, policy_strategy)
+
+        all_run_returns = np.zeros((num_episodes, horizon))
+        all_run_optimal = np.zeros((num_episodes, horizon))
+        all_run_regret = np.zeros((num_episodes, horizon))
+        
+        # Each iteration runs a new randomly created bandit problem.        
+        for run in xrange(num_episodes):
+            self.create_arms()
+
+            optimal_action = random_argmax(self.bandit_arms)
+            optimal_return = self.bandit_arms.max()
+            
+            self.arm_returns = np.zeros(self.num_arms)
+            self.arm_averages = np.zeros(self.num_arms)
+            self.arm_counts = np.ones(self.num_arms)
+            
+            optimal_counts = np.zeros(horizon)
+            samples = np.zeros(horizon)
+            
+            # Each iteration runs a single step for the current bandit problem.
+            for self.i in xrange(horizon):
+                
+                a = self.choose_action()
+                    
+                if a == optimal_action:
+                    optimal_counts[self.i] = 1
+                else:
+                    optimal_counts[self.i] = 0 
+
+                reward = self.sample_arm(a)
+                samples[self.i] = reward
+                
+                self.arm_returns[a] += reward
+                self.arm_averages[a] = self.arm_returns[a]/self.arm_counts[a] 
+                self.arm_counts[a] += 1.
+            
+            all_run_returns[run] = samples
+            all_run_optimal[run] = optimal_counts
+            all_run_regret[run] = optimal_return - samples
+
+        # Averaging values of interest over all bandit problems.
+        self.average_rewards = all_run_returns.mean(axis=0)
+        self.average_optimal = all_run_optimal.mean(axis=0) * 100
+        self.average_regret = all_run_regret.mean(axis=0).cumsum()
+
+
+    def initialize_figs(self, reward=True, regret=True, optimal=True):
+        """This function creates figures to plot selected values of interest.
+
+        :param reward: Bool indicating whether to plot the reward at each round.
+        :param regret: Bool indicating whether to plot the cumulative regret.
+        :param optimal: Bool indicating whether to plot the percentage of optimal actions
+        at each round.
+        """
+
+        self.reward = reward
+        self.regret = regret
+        self.optimal = optimal
+
+        sns.set()
+        sns.set_style("whitegrid")
+
+        if self.reward:
+            self.fig1 = plt.figure(1)
+            self.ax1 = plt.axes()
+        if self.regret:
+            self.fig2 = plt.figure(2)
+            self.ax2 = plt.axes()
+        if self.optimal:
+            self.fig3 = plt.figure(3)
+            self.ax3 = plt.axes()
+
+
+    def get_label(self):
+        """Choosing a label for a plot based off of the simulation parameters."""
+
+        if self.policy_strategy == 'softmax':
+            if self.tau_decay:
+                self.label = r'softmax,  $\tau = %g$, $\tau$-decay$ = %g$' % (self.tau, self.tau_decay_param)
+            else:
+                self.label = r'softmax $\tau$ = %g' % self.tau
+        elif self.policy_strategy == 'e-greedy':
+            if self.epsilon_decay:
+                self.label = r'$\epsilon$-greedy, $\epsilon = %g$, $\epsilon$-decay$ = %g$' % (self.epsilon, self.epsilon_decay_param)
+            else:
+                self.label = r'$\epsilon$-greedy, $\epsilon = %g$' % self.epsilon
+        elif self.policy_strategy == 'greedy':
+            self.label = 'greedy'
+        elif self.policy_strategy == 'ucb':
+            self.label = r'UCB, $c = %g$' % self.c
+        else:
+            self.label = 'random' 
+
+
+    def plot_average_reward(self):
+        """Plotting the average reward at each round from current simulation."""
+
+        self.get_label()
+        self.ax1.plot(self.average_rewards, label=self.label, lw=1)
+
+
+    def plot_cumulative_regret(self):
+        """Plotting the cumulative regret from current simulation."""
+
+        self.get_label()
+        self.ax2.plot(self.average_regret, label=self.label, lw=1)
+
+
+    def plot_average_optimal(self):
+        """Plotting the percentage of optimal actions at each round from current simulation."""
+
+        self.get_label()
+        self.ax3.plot(self.average_optimal, label=self.label, lw=1)
+
+
+    def save_and_show_figs(self, save_figs=False, show_figs=True, fig_path=None):
+        """Saving and showing results of rewards, regret, and optimal actions.
+
+        :param save_figs: Bool indicating whether to save the figures.
+        :param show_figs: Bool indicating whether to show the figures.
+        :param fig_path: Path to save the figures.
+        """
+
+        if self.reward:
+            self.ax1.set_xlabel('Steps', fontsize=22)
+            self.ax1.set_ylabel('Average Reward', fontsize=22)
+            self.ax1.set_title('Bandit Testbed of Strategies', fontsize=22)
+            self.ax1.legend(bbox_to_anchor=(1, 1), loc='upper left', fancybox=True, fontsize=20)
+            self.ax1.set_xlim([0, len(self.average_rewards)])
+            self.ax1.tick_params(axis='both', which='major', labelsize=20)
+            self.ax1.tick_params(axis='both', which='minor', labelsize=20)
+
+            if save_figs:
+                if fig_path is None:
+                    fig_path = os.getcwd() + '/../figs'
+                self.fig1.savefig(os.path.join(fig_path, 'bandit_rewards.png'), bbox_inches='tight')
+
+        if self.regret:
+            self.ax2.set_xlabel('Steps', fontsize=22)
+            self.ax2.set_ylabel('Cumulative Regret', fontsize=22)
+            self.ax2.set_title('Bandit Testbed of Strategies', fontsize=22)
+            self.ax2.legend(bbox_to_anchor=(1, 1), loc='upper left', fancybox=True, fontsize=20)
+            self.ax2.set_xlim([0, len(self.average_regret)])
+            self.ax2.tick_params(axis='both', which='major', labelsize=20)
+            self.ax2.tick_params(axis='both', which='minor', labelsize=20)
+
+            if save_figs:
+                if fig_path is None:
+                    fig_path = os.getcwd() + '/../figs'
+                self.fig2.savefig(os.path.join(fig_path, 'bandit_regret.png'), bbox_inches='tight')
+
+        if self.optimal:
+            self.ax3.set_xlabel('Steps', fontsize=22)
+            self.ax3.set_ylabel(r'$\%$ Optimal Action', fontsize=22)
+            self.ax3.set_title('Bandit Testbed of Strategies', fontsize=22)
+            self.ax3.legend(bbox_to_anchor=(1, 1), loc='upper left', fancybox=True, fontsize=20)
+            self.ax3.set_xlim([0, len(self.average_optimal)])
+            self.ax3.tick_params(axis='both', which='major', labelsize=20)
+            self.ax3.tick_params(axis='both', which='minor', labelsize=20)
+
+            if save_figs:
+                if fig_path is None:
+                    fig_path = os.getcwd() + '/../figs'
+                self.fig3.savefig(os.path.join(fig_path, 'bandit_optimal_action.png'), bbox_inches='tight')
+
+        if show_figs:
+            plt.show()
+
+        sns.reset_orig()
+
+
 class GridWorldBase(object):
     def __init__(self, grid_rows, grid_cols, num_actions, terminal_states):
         """Initializing base class for grid mdp or environment for state, action information.
