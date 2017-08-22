@@ -35,12 +35,20 @@ Current list of multi-arm bandit algorithms:
 - Epsilon Greedy
 - Upper Confidence Bounds (UCB)
 
-# Visualizations, Learning Models, and Policy Strategies
+# Visualizations, Learning Models, Testing Models, and Policy Strategies
 ## Visualizations
+The Grid World environment allows for visualizations of the learned q-value function, learned value function, and learned policy. 
 
+
+Episode rewards, step parameters, epsilon parameters, tau (temperature) parameters can all be plotted following using a model free reinforcement learning algorithm or testing of a learned policy.
+
+For bandit problems, the average reward per round, percent of time the optimal action is taken per round, and the cumulative regret per round can all be plotted.
 
 ## Learning Models
 I have implemented a class to learn a model (Transition and Reward Kernels) by simulating randomly in an environment for some amount of time. This is useful if a model is not given a-priori and you are interested in using model based reinforcement learning algorithms.
+
+## Testing Models
+I have implemented a method that allows for using a learned policy in an environment to test how well it works. This is primarily intended to be used if you are interested in having separated exploration and exploitation phases.
 
 ## Reinforcement Learning Policy Strategies
 The model free reinforcement learning algorithms have the option of several exploration-exploitation strategies. 
@@ -49,3 +57,5 @@ The model free reinforcement learning algorithms have the option of several expl
 - Epsilon Greedy with Exponential Epsilon Decay (Exponential Increase in Greediness)
 - Boltzmann 
 - Boltzmann with Exponential Temperature Decay (Exponential Increase in Greediness)
+
+The model free reinforcement learning algorithms also have the ability to use an exponentially decreasing step size for the update to the temporal difference update.
