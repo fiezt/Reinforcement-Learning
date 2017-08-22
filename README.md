@@ -8,26 +8,26 @@ This repository contains my ongoing implementations of reinforcement learning al
 
 # Model Based Reinforcement Learning
 Current list of model based reinforcement learning (dynamic programming) methods:
-..* Iterative Policy Evaluation
-..* Policy Iteration
-..* Value Iteration
-..* Q-Value Iteration
+- Iterative Policy Evaluation
+- Policy Iteration
+- Value Iteration
+- Q-Value Iteration
 
 # Model Free Reinforcement Learning
 Current list of model free reinforcement learning methods:
-..* One Step Temporal Differences
-..* Sarsa (On Policy Temporal Difference Learning)
-..* Q-Learning (Off Policy Temporal Difference Learning)
+- One Step Temporal Differences
+- Sarsa (On Policy Temporal Difference Learning)
+- Q-Learning (Off Policy Temporal Difference Learning)
 
 # Risk-Sensitive Reinforcement Learning
 Current list of risk-sensitive reinforcement learning methods:
-..* Expected Utility Q-Learning (Nonlinear Mapping of Rewards with Value Function)
-..* Risk-Sensitive Q-Learning (Nonlinear Mapping of Temporal Differences with Value Function)
+- Expected Utility Q-Learning (Nonlinear Mapping of Rewards with Value Function)
+- Risk-Sensitive Q-Learning (Nonlinear Mapping of Temporal Differences with Value Function)
 
 # Multi-Arm Bandits
 Current list of multi-arm bandit methods:
-..* Greedy
-..* Epsilon Greedy
-..* Upper Confidence Bounds (UCB)
+- Greedy
+- Epsilon Greedy
+- Upper Confidence Bounds (UCB)
 
 
