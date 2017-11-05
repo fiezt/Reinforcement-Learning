@@ -51,18 +51,26 @@ class RLBase(object):
 
         This function is used to interact in the environment and get the average
         reward over of number of episodes and show the last episode if specified.
+        The trajectories are also stored of the state action pairs in each episode.
 
         :param env: environment class which the algorithm will attempt to learn.
         :param num_episodes: Integer number of episodes to run in environment for.
         :param render_final: Bool indicator of whether to show the last episode.
+
+        :return t
         """
 
         # List tracking rewards of learning algorithm over episodes.
         self.episode_rewards = []
 
+        # List of episode trajectories containing state action pairs.
+        self.trajectories = []
+
         total_reward = 0
 
         for episode in xrange(num_episodes):
+
+            epsiode_trajectory = []
 
             done = False
             episode_reward = 0
@@ -74,10 +82,14 @@ class RLBase(object):
                     env.render()
 
                 a = self.policy[s]
+
+                epsiode_trajectory.append((s, a))
+
                 s, reward, done, info = env.step(a) 
 
                 episode_reward += reward
 
+            self.trajectories.append(epsiode_trajectory)
             self.episode_rewards.append(episode_reward)
             total_reward += episode_reward
 
@@ -371,8 +383,8 @@ class ModelBasedRL(RLBase):
         self.error = np.zeros((mdp.n, mdp.m))
 
         for s, a in itertools.product(mdp.states, mdp.actions):
-            self.error[s, a] = sum(mdp.P[s, a] * mdp.R[s, a] 
-                                   + self.gamma*self.q.max(axis=1) - self.q[s,a])
+            self.error[s, a] = sum(mdp.P[s, a] * (mdp.R[s, a] + self.gamma*self.q.max(axis=1) 
+                                   - self.q[s,a]))
 
         self.error = abs(self.error)
 
@@ -386,9 +398,8 @@ class ModelBasedRL(RLBase):
         self.error = np.zeros(mdp.n)
 
         for s in mdp.states:                
-            self.error[s] = max([sum(mdp.P[s, a] * mdp.R[s, a] 
-                                     + self.gamma*self.v - self.v[s])
-                                for a in mdp.actions])
+            self.error[s] = max([sum(mdp.P[s, a] * (mdp.R[s, a] + self.gamma*self.v - self.v[s]))
+                                 for a in mdp.actions])
 
         self.error = abs(self.error)
 
@@ -1425,7 +1436,7 @@ class Bandits(object):
     def simulate(self, horizon=1000, num_episodes=2000, epsilon=.2, 
                  epsilon_decay=True, epsilon_decay_param=.01, tau=100, 
                  tau_decay=True, tau_decay_param=.01, c=2, policy_strategy='ucb'):
-        """
+        """Running the bandit problems using chosen algorithms.
 
         :param horizon: Number of times to sample using the bandit algorithm.
         :param num_episodes: Number of different randomly created bandit problems to run that will be averaged over.
@@ -1610,6 +1621,11 @@ class Bandits(object):
             plt.show()
 
         sns.reset_orig()
+
+
+class IRL(object):
+    def __init__(self):
+        pass
 
 
 class GridWorldBase(object):
